@@ -65,6 +65,7 @@ import com.example.cardpocket.data.KEY_NAME
 import com.example.cardpocket.data.model.FieldType
 import com.example.cardpocket.data.model.TemplateField
 import com.example.cardpocket.ui.components.CircularIconButton
+import com.example.cardpocket.ui.components.FieldFormDialog
 import com.example.cardpocket.ui.theme.Bg
 import com.example.cardpocket.ui.theme.ChipBorder
 import com.example.cardpocket.ui.theme.DividerColor
@@ -474,78 +475,17 @@ private fun FieldEditorDialog(
     onSave: (name: String, type: FieldType, options: List<String>, required: Boolean) -> Unit
 ) {
     val isNameField = initial?.key == KEY_NAME
-    var name by remember { mutableStateOf(initial?.name ?: "") }
-    var type by remember { mutableStateOf(initial?.type ?: FieldType.TEXT) }
-    var optionsText by remember { mutableStateOf(initial?.options?.joinToString("\n") ?: "") }
-    var required by remember { mutableStateOf(initial?.required ?: false) }
-
-    val parsedOptions = optionsText.split("\n").map { it.trim() }.filter { it.isNotBlank() }.distinct()
-    val isSelect = type == FieldType.SINGLE_SELECT || type == FieldType.MULTI_SELECT
-    val canSave = name.isNotBlank() && name.trim() !in existingNames && (!isSelect || parsedOptions.isNotEmpty())
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(if (initial == null) "新增字段" else "编辑字段") },
-        text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("字段名称") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(Modifier.height(12.dp))
-                Text("类型", fontSize = 13.sp, color = TextMuted)
-                Spacer(Modifier.height(6.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    TYPE_OPTIONS.forEach { (t, label) ->
-                        FilterChip(
-                            selected = type == t,
-                            onClick = { if (!isNameField) type = t },
-                            enabled = !isNameField,
-                            label = { Text(label, fontSize = 12.sp) }
-                        )
-                    }
-                }
-                if (isSelect) {
-                    Spacer(Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = optionsText,
-                        onValueChange = { optionsText = it },
-                        label = { Text("选项（每行一个）") },
-                        modifier = Modifier.fillMaxWidth().height(120.dp)
-                    )
-                }
-                Spacer(Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("必填", fontSize = 14.sp, color = TextPrimary, modifier = Modifier.weight(1f))
-                    Switch(
-                        checked = if (isNameField) true else required,
-                        onCheckedChange = { if (!isNameField) required = it },
-                        enabled = !isNameField
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = canSave,
-                onClick = {
-                    onSave(
-                        name.trim(),
-                        if (isNameField) FieldType.TEXT else type,
-                        if (isSelect) parsedOptions else emptyList(),
-                        if (isNameField) true else required
-                    )
-                }
-            ) { Text("保存") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
-        }
+    FieldFormDialog(
+        title = if (initial == null) "添加字段" else "编辑字段",
+        confirmText = if (initial == null) "确认添加" else "保存",
+        initialName = initial?.name ?: "",
+        initialType = initial?.type ?: FieldType.TEXT,
+        initialOptions = initial?.options ?: emptyList(),
+        initialRequired = initial?.required ?: false,
+        lockType = isNameField,
+        lockRequired = isNameField,
+        existingNames = existingNames,
+        onDismiss = onDismiss,
+        onConfirm = onSave
     )
 }

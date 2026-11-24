@@ -67,7 +67,6 @@ fun ProfileScreen(onOpenTemplates: () -> Unit, onOpenFeedback: () -> Unit) {
 
     LaunchedEffect(Unit) {
         AppData.refresh()
-        AppData.ensureDefaultTemplates()
     }
 
     val interactions = remember(cards) {

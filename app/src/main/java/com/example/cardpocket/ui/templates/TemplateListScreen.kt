@@ -27,10 +27,15 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.cardpocket.data.AppData
 import com.example.cardpocket.data.model.Template
+import com.example.cardpocket.data.model.TemplateField
 import com.example.cardpocket.ui.components.CircularIconButton
 import com.example.cardpocket.ui.theme.Bg
 import com.example.cardpocket.ui.theme.ChipBorder
@@ -51,6 +57,7 @@ import com.example.cardpocket.ui.theme.SurfaceWhite
 import com.example.cardpocket.ui.theme.Terracotta
 import com.example.cardpocket.ui.theme.TextMuted
 import com.example.cardpocket.ui.theme.TextPrimary
+import kotlinx.coroutines.launch
 
 @Composable
 fun TemplateListScreen(
@@ -58,8 +65,12 @@ fun TemplateListScreen(
     onEditTemplate: (Long?) -> Unit
 ) {
     val templates by AppData.templates.collectAsState()
+    val scope = rememberCoroutineScope()
+    var fieldsByTemplate by remember { mutableStateOf<Map<Long, List<TemplateField>>>(emptyMap()) }
 
-    LaunchedEffect(Unit) { AppData.ensureDefaultTemplates() }
+    LaunchedEffect(templates) {
+        fieldsByTemplate = AppData.getAllTemplateFields().groupBy { it.templateId }
+    }
     BackHandler { onBack() }
 
     Column(
@@ -110,12 +121,20 @@ fun TemplateListScreen(
             item { TemplateBanner() }
             item { TemplateSectionHeader(templates.size) }
             itemsIndexed(templates, key = { _, t -> t.id }) { index, template ->
-                TemplateCard(index = index, template = template, onClick = { onEditTemplate(template.id) })
+                TemplateCard(
+                    index = index,
+                    template = template,
+                    fields = fieldsByTemplate[template.id].orEmpty(),
+                    onClick = { onEditTemplate(template.id) },
+                    onSetDefault = {
+                        scope.launch { AppData.setDefaultTemplate(template.id) }
+                    }
+                )
             }
             item { CreateTemplateButton { onEditTemplate(null) } }
             item {
                 Text(
-                    text = "模板保存在本机，新增联系人时可自由选择。",
+                    text = "模板保存在本机；新建联系人时可选择模板。",
                     fontSize = 12.sp,
                     color = TextMuted,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
@@ -172,7 +191,13 @@ private fun TemplateSectionHeader(count: Int) {
 }
 
 @Composable
-private fun TemplateCard(index: Int, template: Template, onClick: () -> Unit) {
+private fun TemplateCard(
+    index: Int,
+    template: Template,
+    fields: List<TemplateField>,
+    onClick: () -> Unit,
+    onSetDefault: () -> Unit
+) {
     Surface(
         color = SurfaceWhite,
         shape = RoundedCornerShape(16.dp),
@@ -181,9 +206,20 @@ private fun TemplateCard(index: Int, template: Template, onClick: () -> Unit) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(template.name, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                if (template.isDefault) {
+                    Spacer(Modifier.width(8.dp))
+                    Surface(color = Terracotta.copy(alpha = 0.14f), shape = RoundedCornerShape(50)) {
+                        Text(
+                            "默认",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            fontSize = 11.sp,
+                            color = Terracotta
+                        )
+                    }
+                }
                 Spacer(Modifier.weight(1f))
                 Text(
-                    text = "${(index + 1).toString().padStart(2, '0')} / ${template.fields.size} 个字段",
+                    text = "${(index + 1).toString().padStart(2, '0')} / ${fields.size} 个字段",
                     fontSize = 12.sp,
                     color = TextMuted
                 )
@@ -195,9 +231,15 @@ private fun TemplateCard(index: Int, template: Template, onClick: () -> Unit) {
                     modifier = Modifier.size(16.dp)
                 )
             }
-            if (template.fields.isNotEmpty()) {
+            if (fields.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
-                Text(template.fields.joinToString(" · "), fontSize = 13.sp, color = TextMuted)
+                Text(fields.joinToString(" · ") { it.name }, fontSize = 13.sp, color = TextMuted)
+            }
+            if (!template.isDefault) {
+                Spacer(Modifier.height(4.dp))
+                TextButton(onClick = onSetDefault) {
+                    Text("设为默认", color = Terracotta, fontSize = 13.sp)
+                }
             }
         }
     }

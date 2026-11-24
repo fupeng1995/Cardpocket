@@ -70,7 +70,7 @@ import com.example.cardpocket.util.todayLabel
 
 enum class SortMode(val label: String, val short: String) {
     NAME("姓名", "姓名"),
-    MEETING("见面时间", "见面"),
+    MEETING("最近联系", "最近"),
     CREATED("创建时间", "创建"),
     UPDATED("最近更新", "最近")
 }
@@ -79,14 +79,13 @@ private fun filterAndSort(cards: List<Card>, query: String, sort: SortMode): Lis
     val q = query.trim()
     val filtered = if (q.isEmpty()) cards else cards.filter {
         it.name.contains(q, ignoreCase = true) ||
-            it.nickname.contains(q, ignoreCase = true) ||
-            it.relationship.contains(q, ignoreCase = true) ||
-            it.note.contains(q, ignoreCase = true)
+            it.subtitle.contains(q, ignoreCase = true) ||
+            it.relationship.contains(q, ignoreCase = true)
     }
     return filtered.sortedWith(
         when (sort) {
             SortMode.NAME -> compareBy(String.CASE_INSENSITIVE_ORDER) { it.name }
-            SortMode.MEETING -> compareByDescending<Card> { it.meetingDate ?: Long.MIN_VALUE }
+            SortMode.MEETING -> compareByDescending<Card> { it.lastContact ?: it.meetingDate ?: Long.MIN_VALUE }
                 .thenBy(String.CASE_INSENSITIVE_ORDER) { it.name }
             SortMode.CREATED -> compareByDescending<Card> { it.createdAt }
             SortMode.UPDATED -> compareByDescending<Card> { it.updatedAt }
@@ -393,10 +392,7 @@ private fun ContactRow(card: Card, onClick: () -> Unit) {
                     Badge(card.relationship)
                 }
             }
-            val subtitle = listOfNotNull(
-                card.jobTitle.takeIf { it.isNotBlank() },
-                card.company.takeIf { it.isNotBlank() }
-            ).joinToString(" · ").ifBlank { card.note.ifBlank { card.nickname } }
+            val subtitle = card.subtitle
             if (subtitle.isNotBlank()) {
                 Spacer(Modifier.height(3.dp))
                 Text(
@@ -410,7 +406,7 @@ private fun ContactRow(card: Card, onClick: () -> Unit) {
         }
         Spacer(Modifier.width(8.dp))
         Text(
-            text = relativeTime(card.meetingDate ?: card.updatedAt),
+            text = relativeTime(card.lastContact ?: card.meetingDate ?: card.updatedAt),
             fontSize = 12.sp,
             color = TextMuted
         )

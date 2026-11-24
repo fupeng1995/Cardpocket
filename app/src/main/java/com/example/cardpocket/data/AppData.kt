@@ -6,18 +6,31 @@ import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import com.example.cardpocket.data.model.Card
+import com.example.cardpocket.data.model.CardField
 import com.example.cardpocket.data.model.ContactRecord
-import com.example.cardpocket.data.model.FieldDef
 import com.example.cardpocket.data.model.FieldType
-import com.example.cardpocket.data.model.FieldValue
-import com.example.cardpocket.data.model.Template
 import com.example.cardpocket.data.model.OPTION_SEPARATOR
+import com.example.cardpocket.data.model.Template
+import com.example.cardpocket.data.model.TemplateField
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
 
 private const val DB_NAME = "card_pocket.db"
-private const val DB_VERSION = 5
+private const val DB_VERSION = 6
+
+/** 保留 key：界面按这些 key 识别“名字 / 关系 / 认识时间 / 最近联系”。 */
+const val KEY_NAME = "name"
+const val KEY_RELATIONSHIP = "relationship"
+const val KEY_MEETING_DATE = "meeting_date"
+const val KEY_LAST_CONTACT = "last_contact"
+
+private val DEFAULT_RELATIONSHIPS = listOf(
+    "家人", "朋友", "同事", "同学", "老师", "客户", "邻居", "网友", "一面之缘"
+)
+
+private fun newFieldKey(): String =
+    "f_" + java.util.UUID.randomUUID().toString().replace("-", "").take(10)
 
 private class CardDbHelper(context: Context) :
     SQLiteOpenHelper(context.applicationContext, DB_NAME, null, DB_VERSION) {
@@ -25,17 +38,39 @@ private class CardDbHelper(context: Context) :
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
             """
+            CREATE TABLE templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL DEFAULT '',
+                is_default INTEGER NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL DEFAULT 0
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
+            CREATE TABLE template_fields (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                template_id INTEGER NOT NULL,
+                field_key TEXT NOT NULL DEFAULT '',
+                name TEXT NOT NULL DEFAULT '',
+                type TEXT NOT NULL DEFAULT 'TEXT',
+                options TEXT NOT NULL DEFAULT '',
+                required INTEGER NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL DEFAULT 0
+            )
+            """.trimIndent()
+        )
+        db.execSQL(
+            """
             CREATE TABLE cards (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                nickname TEXT NOT NULL DEFAULT '',
+                template_id INTEGER NOT NULL DEFAULT 0,
                 avatar_emoji TEXT NOT NULL DEFAULT '',
-                job_title TEXT NOT NULL DEFAULT '',
-                company TEXT NOT NULL DEFAULT '',
-                city TEXT NOT NULL DEFAULT '',
+                name TEXT NOT NULL DEFAULT '',
+                subtitle TEXT NOT NULL DEFAULT '',
                 relationship TEXT NOT NULL DEFAULT '',
                 meeting_date INTEGER,
-                note TEXT NOT NULL DEFAULT '',
+                last_contact INTEGER,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL
             )
@@ -43,22 +78,25 @@ private class CardDbHelper(context: Context) :
         )
         db.execSQL(
             """
-            CREATE TABLE field_defs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                type TEXT NOT NULL,
+            CREATE TABLE card_fields (
+                card_id INTEGER NOT NULL,
+                field_key TEXT NOT NULL,
+                name TEXT NOT NULL DEFAULT '',
+                type TEXT NOT NULL DEFAULT 'TEXT',
                 options TEXT NOT NULL DEFAULT '',
-                sort_order INTEGER NOT NULL DEFAULT 0
+                required INTEGER NOT NULL DEFAULT 0,
+                sort_order INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (card_id, field_key)
             )
             """.trimIndent()
         )
         db.execSQL(
             """
-            CREATE TABLE field_values (
+            CREATE TABLE card_values (
                 card_id INTEGER NOT NULL,
-                field_id INTEGER NOT NULL,
+                field_key TEXT NOT NULL,
                 value TEXT NOT NULL DEFAULT '',
-                PRIMARY KEY (card_id, field_id)
+                PRIMARY KEY (card_id, field_key)
             )
             """.trimIndent()
         )
@@ -75,55 +113,85 @@ private class CardDbHelper(context: Context) :
             )
             """.trimIndent()
         )
-        db.execSQL(
-            """
-            CREATE TABLE templates (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL DEFAULT '',
-                fields TEXT NOT NULL DEFAULT '',
-                sort_order INTEGER NOT NULL DEFAULT 0
-            )
-            """.trimIndent()
-        )
+        seedDefaultTemplate(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        if (oldVersion < 2) {
-            db.execSQL("ALTER TABLE cards ADD COLUMN job_title TEXT NOT NULL DEFAULT ''")
-            db.execSQL("ALTER TABLE cards ADD COLUMN company TEXT NOT NULL DEFAULT ''")
-            db.execSQL("ALTER TABLE cards ADD COLUMN city TEXT NOT NULL DEFAULT ''")
+        if (oldVersion < 6) {
+            // 开发测试阶段：旧数据可清空，直接重建表
+            db.execSQL("DROP TABLE IF EXISTS cards")
+            db.execSQL("DROP TABLE IF EXISTS field_defs")
+            db.execSQL("DROP TABLE IF EXISTS field_values")
+            db.execSQL("DROP TABLE IF EXISTS records")
+            db.execSQL("DROP TABLE IF EXISTS templates")
+            db.execSQL("DROP TABLE IF EXISTS template_fields")
+            db.execSQL("DROP TABLE IF EXISTS card_fields")
+            db.execSQL("DROP TABLE IF EXISTS card_values")
+            onCreate(db)
         }
-        if (oldVersion < 3) {
-            db.execSQL(
-                """
-                CREATE TABLE records (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    card_id INTEGER NOT NULL,
-                    date_millis INTEGER NOT NULL,
-                    created_at INTEGER NOT NULL DEFAULT 0,
-                    type TEXT NOT NULL DEFAULT '',
-                    time_text TEXT NOT NULL DEFAULT '',
-                    content TEXT NOT NULL DEFAULT ''
-                )
-                """.trimIndent()
-            )
+    }
+
+    fun seedDefaultTemplateIfEmpty() {
+        val count = readableDatabase.rawQuery("SELECT COUNT(*) FROM templates", null).use { c ->
+            if (c.moveToFirst()) c.getInt(0) else 0
         }
-        if (oldVersion < 4) {
-            db.execSQL("ALTER TABLE records ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0")
-        }
-        if (oldVersion < 5) {
-            db.execSQL(
-                """
-                CREATE TABLE templates (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    name TEXT NOT NULL DEFAULT '',
-                    fields TEXT NOT NULL DEFAULT '',
-                    sort_order INTEGER NOT NULL DEFAULT 0
-                )
-                """.trimIndent()
+        if (count == 0) seedDefaultTemplate(writableDatabase)
+    }
+
+    private fun seedDefaultTemplate(db: SQLiteDatabase) {
+        val templateId = db.insertOrThrow(
+            "templates", null,
+            ContentValues().apply {
+                put("name", "默认模板")
+                put("is_default", 1)
+                put("sort_order", 0)
+            }
+        )
+        val fields = listOf(
+            Triple(KEY_NAME, "名字", FieldType.TEXT) to true,
+            Triple("job_title", "职位", FieldType.TEXT) to false,
+            Triple("company", "公司", FieldType.TEXT) to false,
+            Triple("native_place", "籍贯", FieldType.TEXT) to false,
+            Triple("birthday", "生日", FieldType.DATE) to false,
+            Triple(KEY_RELATIONSHIP, "关系标签", FieldType.SINGLE_SELECT) to false,
+            Triple(KEY_MEETING_DATE, "认识时间", FieldType.DATE) to false,
+            Triple(KEY_LAST_CONTACT, "最近联系时间", FieldType.DATE) to false
+        )
+        fields.forEachIndexed { index, (triple, required) ->
+            val (key, name, type) = triple
+            insertField(
+                db, templateId, key, name, type,
+                if (type == FieldType.SINGLE_SELECT) DEFAULT_RELATIONSHIPS else emptyList(),
+                required, index
             )
         }
     }
+
+    private fun insertField(
+        db: SQLiteDatabase,
+        templateId: Long,
+        key: String,
+        name: String,
+        type: FieldType,
+        options: List<String>,
+        required: Boolean,
+        sortOrder: Int
+    ) {
+        db.insertOrThrow(
+            "template_fields", null,
+            ContentValues().apply {
+                put("template_id", templateId)
+                put("field_key", key)
+                put("name", name)
+                put("type", type.name)
+                put("options", options.joinToString(OPTION_SEPARATOR))
+                put("required", if (required) 1 else 0)
+                put("sort_order", sortOrder)
+            }
+        )
+    }
+
+    // ---------- cards ----------
 
     fun getAllCards(): List<Card> {
         val out = mutableListOf<Card>()
@@ -141,16 +209,13 @@ private class CardDbHelper(context: Context) :
 
     fun upsertCard(card: Card): Long {
         val values = ContentValues().apply {
-            put("name", card.name)
-            put("nickname", card.nickname)
+            put("template_id", card.templateId)
             put("avatar_emoji", card.avatarEmoji)
-            put("job_title", card.jobTitle)
-            put("company", card.company)
-            put("city", card.city)
+            put("name", card.name)
+            put("subtitle", card.subtitle)
             put("relationship", card.relationship)
-            if (card.meetingDate == null) putNull("meeting_date")
-            else put("meeting_date", card.meetingDate)
-            put("note", card.note)
+            if (card.meetingDate == null) putNull("meeting_date") else put("meeting_date", card.meetingDate)
+            if (card.lastContact == null) putNull("last_contact") else put("last_contact", card.lastContact)
             put("created_at", card.createdAt)
             put("updated_at", card.updatedAt)
         }
@@ -163,109 +228,160 @@ private class CardDbHelper(context: Context) :
     }
 
     fun deleteCard(id: Long) {
-        val db = writableDatabase
-        db.beginTransaction()
-        try {
-            db.delete("records", "card_id = ?", arrayOf(id.toString()))
-            db.delete("field_values", "card_id = ?", arrayOf(id.toString()))
-            db.delete("cards", "id = ?", arrayOf(id.toString()))
-            db.setTransactionSuccessful()
-        } finally {
-            db.endTransaction()
-        }
+        writableDatabase.delete("card_fields", "card_id = ?", arrayOf(id.toString()))
+        writableDatabase.delete("card_values", "card_id = ?", arrayOf(id.toString()))
+        writableDatabase.delete("records", "card_id = ?", arrayOf(id.toString()))
+        writableDatabase.delete("cards", "id = ?", arrayOf(id.toString()))
     }
 
-    fun getAllFieldDefs(): List<FieldDef> {
-        val out = mutableListOf<FieldDef>()
+    fun updateCardLastContact(cardId: Long, lastContact: Long?, now: Long) {
+        val values = ContentValues().apply {
+            if (lastContact == null) putNull("last_contact") else put("last_contact", lastContact)
+            put("updated_at", now)
+        }
+        writableDatabase.update("cards", values, "id = ?", arrayOf(cardId.toString()))
+    }
+
+    // ---------- card_fields / card_values ----------
+
+    fun getCardFields(cardId: Long): List<CardField> {
+        val out = mutableListOf<CardField>()
         readableDatabase.rawQuery(
-            "SELECT * FROM field_defs ORDER BY sort_order ASC, id ASC", null
+            "SELECT * FROM card_fields WHERE card_id = ? ORDER BY sort_order ASC",
+            arrayOf(cardId.toString())
         ).use { c ->
-            while (c.moveToNext()) out += c.toFieldDef()
+            while (c.moveToNext()) out += c.toCardField()
         }
         return out
     }
 
-    fun getFieldDef(id: Long): FieldDef? {
+    fun saveCardFields(cardId: Long, fields: List<CardField>) {
+        writableDatabase.delete("card_fields", "card_id = ?", arrayOf(cardId.toString()))
+        fields.forEach { f ->
+            writableDatabase.insertOrThrow(
+                "card_fields", null,
+                ContentValues().apply {
+                    put("card_id", cardId)
+                    put("field_key", f.key)
+                    put("name", f.name)
+                    put("type", f.type.name)
+                    put("options", f.options.joinToString(OPTION_SEPARATOR))
+                    put("required", if (f.required) 1 else 0)
+                    put("sort_order", f.sortOrder)
+                }
+            )
+        }
+    }
+
+    fun getCardValues(cardId: Long): Map<String, String> {
+        val out = LinkedHashMap<String, String>()
         readableDatabase.rawQuery(
-            "SELECT * FROM field_defs WHERE id = ?", arrayOf(id.toString())
-        ).use { c ->
-            return if (c.moveToFirst()) c.toFieldDef() else null
-        }
-    }
-
-    fun upsertFieldDef(def: FieldDef): Long {
-        val values = ContentValues().apply {
-            put("name", def.name)
-            put("type", def.type.name)
-            put("options", def.options.joinToString(OPTION_SEPARATOR))
-            put("sort_order", def.sortOrder)
-        }
-        return if (def.id == 0L) {
-            writableDatabase.insertOrThrow("field_defs", null, values)
-        } else {
-            writableDatabase.update("field_defs", values, "id = ?", arrayOf(def.id.toString()))
-            def.id
-        }
-    }
-
-    fun deleteFieldDef(id: Long) {
-        val db = writableDatabase
-        db.beginTransaction()
-        try {
-            db.delete("field_values", "field_id = ?", arrayOf(id.toString()))
-            db.delete("field_defs", "id = ?", arrayOf(id.toString()))
-            db.setTransactionSuccessful()
-        } finally {
-            db.endTransaction()
-        }
-    }
-
-    fun moveFieldDef(id: Long, up: Boolean) {
-        val all = getAllFieldDefs()
-        val index = all.indexOfFirst { it.id == id }
-        if (index < 0) return
-        val target = if (up) index - 1 else index + 1
-        if (target !in all.indices) return
-        val a = all[index]
-        val b = all[target]
-        val db = writableDatabase
-        db.execSQL("UPDATE field_defs SET sort_order = ? WHERE id = ?", arrayOf(b.sortOrder, a.id))
-        db.execSQL("UPDATE field_defs SET sort_order = ? WHERE id = ?", arrayOf(a.sortOrder, b.id))
-    }
-
-    fun getFieldValues(cardId: Long): List<FieldValue> {
-        val out = mutableListOf<FieldValue>()
-        readableDatabase.rawQuery(
-            "SELECT * FROM field_values WHERE card_id = ?", arrayOf(cardId.toString())
+            "SELECT field_key, value FROM card_values WHERE card_id = ?",
+            arrayOf(cardId.toString())
         ).use { c ->
             while (c.moveToNext()) {
-                out += FieldValue(
-                    cardId = c.getLong(c.getColumnIndexOrThrow("card_id")),
-                    fieldId = c.getLong(c.getColumnIndexOrThrow("field_id")),
-                    value = c.getString(c.getColumnIndexOrThrow("value"))
-                )
+                out[c.getString(c.getColumnIndexOrThrow("field_key"))] =
+                    c.getString(c.getColumnIndexOrThrow("value"))
             }
         }
         return out
     }
 
-    fun saveFieldValues(cardId: Long, values: Map<Long, String>) {
-        val db = writableDatabase
-        db.beginTransaction()
-        try {
-            values.forEach { (fieldId, value) ->
-                val cv = ContentValues().apply {
+    fun saveCardValues(cardId: Long, values: Map<String, String>) {
+        writableDatabase.delete("card_values", "card_id = ?", arrayOf(cardId.toString()))
+        values.forEach { (key, value) ->
+            writableDatabase.insertOrThrow(
+                "card_values", null,
+                ContentValues().apply {
                     put("card_id", cardId)
-                    put("field_id", fieldId)
+                    put("field_key", key)
                     put("value", value)
                 }
-                db.insertWithOnConflict("field_values", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
-            }
-            db.setTransactionSuccessful()
-        } finally {
-            db.endTransaction()
+            )
         }
     }
+
+    // ---------- templates ----------
+
+    fun getAllTemplates(): List<Template> {
+        val out = mutableListOf<Template>()
+        readableDatabase.rawQuery(
+            "SELECT * FROM templates ORDER BY is_default DESC, sort_order ASC, id ASC", null
+        ).use { c ->
+            while (c.moveToNext()) out += c.toTemplate()
+        }
+        return out
+    }
+
+    fun getTemplate(id: Long): Template? {
+        readableDatabase.rawQuery("SELECT * FROM templates WHERE id = ?", arrayOf(id.toString())).use { c ->
+            return if (c.moveToFirst()) c.toTemplate() else null
+        }
+    }
+
+    fun upsertTemplate(template: Template): Long {
+        val values = ContentValues().apply {
+            put("name", template.name)
+            put("is_default", if (template.isDefault) 1 else 0)
+            put("sort_order", template.sortOrder)
+        }
+        return if (template.id == 0L) {
+            writableDatabase.insertOrThrow("templates", null, values)
+        } else {
+            writableDatabase.update("templates", values, "id = ?", arrayOf(template.id.toString()))
+            template.id
+        }
+    }
+
+    fun deleteTemplate(id: Long) {
+        writableDatabase.delete("template_fields", "template_id = ?", arrayOf(id.toString()))
+        writableDatabase.delete("templates", "id = ?", arrayOf(id.toString()))
+    }
+
+    fun clearDefaultTemplate() {
+        writableDatabase.execSQL("UPDATE templates SET is_default = 0")
+    }
+
+    fun getTemplateFields(templateId: Long): List<TemplateField> {
+        val out = mutableListOf<TemplateField>()
+        readableDatabase.rawQuery(
+            "SELECT * FROM template_fields WHERE template_id = ? ORDER BY sort_order ASC, id ASC",
+            arrayOf(templateId.toString())
+        ).use { c ->
+            while (c.moveToNext()) out += c.toTemplateField()
+        }
+        return out
+    }
+
+    fun getAllTemplateFields(): List<TemplateField> {
+        val out = mutableListOf<TemplateField>()
+        readableDatabase.rawQuery(
+            "SELECT * FROM template_fields ORDER BY template_id ASC, sort_order ASC, id ASC", null
+        ).use { c ->
+            while (c.moveToNext()) out += c.toTemplateField()
+        }
+        return out
+    }
+
+    fun replaceTemplateFields(templateId: Long, fields: List<TemplateField>) {
+        writableDatabase.delete("template_fields", "template_id = ?", arrayOf(templateId.toString()))
+        fields.forEach { f ->
+            writableDatabase.insertOrThrow(
+                "template_fields", null,
+                ContentValues().apply {
+                    put("template_id", templateId)
+                    put("field_key", f.key)
+                    put("name", f.name)
+                    put("type", f.type.name)
+                    put("options", f.options.joinToString(OPTION_SEPARATOR))
+                    put("required", if (f.required) 1 else 0)
+                    put("sort_order", f.sortOrder)
+                }
+            )
+        }
+    }
+
+    // ---------- records ----------
 
     fun getRecords(cardId: Long): List<ContactRecord> {
         val out = mutableListOf<ContactRecord>()
@@ -273,17 +389,7 @@ private class CardDbHelper(context: Context) :
             "SELECT * FROM records WHERE card_id = ? ORDER BY date_millis DESC, id DESC",
             arrayOf(cardId.toString())
         ).use { c ->
-            while (c.moveToNext()) {
-                out += ContactRecord(
-                    id = c.getLong(c.getColumnIndexOrThrow("id")),
-                    cardId = c.getLong(c.getColumnIndexOrThrow("card_id")),
-                    dateMillis = c.getLong(c.getColumnIndexOrThrow("date_millis")),
-                    createdAt = c.getLong(c.getColumnIndexOrThrow("created_at")),
-                    type = c.getString(c.getColumnIndexOrThrow("type")),
-                    timeText = c.getString(c.getColumnIndexOrThrow("time_text")),
-                    content = c.getString(c.getColumnIndexOrThrow("content"))
-                )
-            }
+            while (c.moveToNext()) out += c.toRecord()
         }
         return out
     }
@@ -309,75 +415,80 @@ private class CardDbHelper(context: Context) :
         writableDatabase.delete("records", "id = ?", arrayOf(id.toString()))
     }
 
-    fun getTemplates(): List<Template> {
-        val out = mutableListOf<Template>()
+    fun getMaxRecordDate(cardId: Long): Long? {
         readableDatabase.rawQuery(
-            "SELECT * FROM templates ORDER BY sort_order ASC, id ASC", null
+            "SELECT MAX(date_millis) FROM records WHERE card_id = ?",
+            arrayOf(cardId.toString())
         ).use { c ->
-            while (c.moveToNext()) out += c.toTemplate()
+            return if (c.moveToFirst() && !c.isNull(0)) c.getLong(0) else null
         }
-        return out
     }
 
-    fun getTemplate(id: Long): Template? {
+    fun getRecordCardId(id: Long): Long? {
         readableDatabase.rawQuery(
-            "SELECT * FROM templates WHERE id = ?", arrayOf(id.toString())
+            "SELECT card_id FROM records WHERE id = ?", arrayOf(id.toString())
         ).use { c ->
-            return if (c.moveToFirst()) c.toTemplate() else null
+            return if (c.moveToFirst()) c.getLong(0) else null
         }
     }
 
-    fun upsertTemplate(template: Template): Long {
-        val values = ContentValues().apply {
-            put("name", template.name)
-            put("fields", template.fields.joinToString(OPTION_SEPARATOR))
-            put("sort_order", template.sortOrder)
-        }
-        return if (template.id == 0L) {
-            writableDatabase.insertOrThrow("templates", null, values)
-        } else {
-            writableDatabase.update("templates", values, "id = ?", arrayOf(template.id.toString()))
-            template.id
-        }
-    }
-
-    fun deleteTemplate(id: Long) {
-        writableDatabase.delete("templates", "id = ?", arrayOf(id.toString()))
-    }
+    // ---------- mappers ----------
 
     private fun Cursor.toCard(): Card = Card(
         id = getLong(getColumnIndexOrThrow("id")),
-        name = getString(getColumnIndexOrThrow("name")),
-        nickname = getString(getColumnIndexOrThrow("nickname")),
+        templateId = getLong(getColumnIndexOrThrow("template_id")),
         avatarEmoji = getString(getColumnIndexOrThrow("avatar_emoji")),
-        jobTitle = getString(getColumnIndexOrThrow("job_title")),
-        company = getString(getColumnIndexOrThrow("company")),
-        city = getString(getColumnIndexOrThrow("city")),
+        name = getString(getColumnIndexOrThrow("name")),
+        subtitle = getString(getColumnIndexOrThrow("subtitle")),
         relationship = getString(getColumnIndexOrThrow("relationship")),
         meetingDate = if (isNull(getColumnIndexOrThrow("meeting_date"))) null
         else getLong(getColumnIndexOrThrow("meeting_date")),
-        note = getString(getColumnIndexOrThrow("note")),
+        lastContact = if (isNull(getColumnIndexOrThrow("last_contact"))) null
+        else getLong(getColumnIndexOrThrow("last_contact")),
         createdAt = getLong(getColumnIndexOrThrow("created_at")),
         updatedAt = getLong(getColumnIndexOrThrow("updated_at"))
     )
 
-    private fun Cursor.toFieldDef(): FieldDef = FieldDef(
-        id = getLong(getColumnIndexOrThrow("id")),
+    private fun Cursor.toCardField(): CardField = CardField(
+        cardId = getLong(getColumnIndexOrThrow("card_id")),
+        key = getString(getColumnIndexOrThrow("field_key")),
         name = getString(getColumnIndexOrThrow("name")),
         type = FieldType.fromName(getString(getColumnIndexOrThrow("type"))),
         options = getString(getColumnIndexOrThrow("options")).let {
             if (it.isEmpty()) emptyList() else it.split(OPTION_SEPARATOR)
         },
+        required = getInt(getColumnIndexOrThrow("required")) == 1,
         sortOrder = getInt(getColumnIndexOrThrow("sort_order"))
     )
 
     private fun Cursor.toTemplate(): Template = Template(
         id = getLong(getColumnIndexOrThrow("id")),
         name = getString(getColumnIndexOrThrow("name")),
-        fields = getString(getColumnIndexOrThrow("fields")).let {
+        isDefault = getInt(getColumnIndexOrThrow("is_default")) == 1,
+        sortOrder = getInt(getColumnIndexOrThrow("sort_order"))
+    )
+
+    private fun Cursor.toTemplateField(): TemplateField = TemplateField(
+        id = getLong(getColumnIndexOrThrow("id")),
+        templateId = getLong(getColumnIndexOrThrow("template_id")),
+        key = getString(getColumnIndexOrThrow("field_key")),
+        name = getString(getColumnIndexOrThrow("name")),
+        type = FieldType.fromName(getString(getColumnIndexOrThrow("type"))),
+        options = getString(getColumnIndexOrThrow("options")).let {
             if (it.isEmpty()) emptyList() else it.split(OPTION_SEPARATOR)
         },
+        required = getInt(getColumnIndexOrThrow("required")) == 1,
         sortOrder = getInt(getColumnIndexOrThrow("sort_order"))
+    )
+
+    private fun Cursor.toRecord(): ContactRecord = ContactRecord(
+        id = getLong(getColumnIndexOrThrow("id")),
+        cardId = getLong(getColumnIndexOrThrow("card_id")),
+        dateMillis = getLong(getColumnIndexOrThrow("date_millis")),
+        createdAt = getLong(getColumnIndexOrThrow("created_at")),
+        type = getString(getColumnIndexOrThrow("type")),
+        timeText = getString(getColumnIndexOrThrow("time_text")),
+        content = getString(getColumnIndexOrThrow("content"))
     )
 }
 
@@ -386,7 +497,6 @@ object AppData {
     private lateinit var db: CardDbHelper
 
     val cards = MutableStateFlow<List<Card>>(emptyList())
-    val fieldDefs = MutableStateFlow<List<FieldDef>>(emptyList())
     val templates = MutableStateFlow<List<Template>>(emptyList())
 
     fun init(context: Context) {
@@ -394,87 +504,55 @@ object AppData {
     }
 
     suspend fun refresh() = withContext(Dispatchers.IO) {
+        db.seedDefaultTemplateIfEmpty()
         cards.value = db.getAllCards()
-        fieldDefs.value = db.getAllFieldDefs()
+        templates.value = db.getAllTemplates()
     }
 
     suspend fun getCard(id: Long): Card? = withContext(Dispatchers.IO) { db.getCard(id) }
 
-    suspend fun getFieldDef(id: Long): FieldDef? =
-        withContext(Dispatchers.IO) { db.getFieldDef(id) }
+    suspend fun getCardFields(cardId: Long): List<CardField> =
+        withContext(Dispatchers.IO) { db.getCardFields(cardId) }
 
-    suspend fun getFieldValues(cardId: Long): List<FieldValue> =
-        withContext(Dispatchers.IO) { db.getFieldValues(cardId) }
+    suspend fun getCardValues(cardId: Long): Map<String, String> =
+        withContext(Dispatchers.IO) { db.getCardValues(cardId) }
 
-    suspend fun getRecords(cardId: Long): List<ContactRecord> =
-        withContext(Dispatchers.IO) { db.getRecords(cardId) }
-
-    suspend fun saveRecord(record: ContactRecord) =
-        withContext(Dispatchers.IO) {
-            val toSave = if (record.id == 0L && record.createdAt == 0L) {
-                record.copy(createdAt = System.currentTimeMillis())
-            } else {
-                record
-            }
-            db.upsertRecord(toSave)
-        }
-
-    suspend fun deleteRecord(id: Long) =
-        withContext(Dispatchers.IO) { db.deleteRecord(id) }
-
-    suspend fun refreshTemplates() = withContext(Dispatchers.IO) {
-        templates.value = db.getTemplates()
-    }
-
-    suspend fun getTemplate(id: Long): Template? =
-        withContext(Dispatchers.IO) { db.getTemplate(id) }
-
-    suspend fun ensureDefaultTemplates() = withContext(Dispatchers.IO) {
-        if (db.getTemplates().isEmpty()) {
-            db.upsertTemplate(
-                Template(
-                    id = 0L,
-                    name = "商务伙伴",
-                    fields = listOf("姓名", "职位", "公司", "城市", "关系标签", "关系备注"),
-                    sortOrder = 0
-                )
-            )
-            db.upsertTemplate(
-                Template(
-                    id = 0L,
-                    name = "朋友与生活",
-                    fields = listOf("姓名", "城市", "生日", "兴趣爱好", "关系备注"),
-                    sortOrder = 1
-                )
-            )
-        }
-        templates.value = db.getTemplates()
-    }
-
-    suspend fun saveTemplate(template: Template) = withContext(Dispatchers.IO) {
-        val toSave = if (template.id == 0L) {
-            val next = db.getTemplates().maxOfOrNull { it.sortOrder }?.plus(1) ?: 0
-            template.copy(sortOrder = next)
-        } else {
-            val existing = db.getTemplates().firstOrNull { it.id == template.id }
-            template.copy(sortOrder = existing?.sortOrder ?: 0)
-        }
-        db.upsertTemplate(toSave)
-        templates.value = db.getTemplates()
-    }
-
-    suspend fun deleteTemplate(id: Long) = withContext(Dispatchers.IO) {
-        db.deleteTemplate(id)
-        templates.value = db.getTemplates()
-    }
-
-    suspend fun saveCard(card: Card, values: Map<Long, String>) = withContext(Dispatchers.IO) {
+    suspend fun saveCard(
+        cardId: Long,
+        templateId: Long,
+        avatarEmoji: String,
+        fields: List<CardField>,
+        values: Map<String, String>
+    ): Long = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
-        val existing = if (card.id != 0L) db.getCard(card.id) else null
-        val toSave = card.copy(createdAt = existing?.createdAt ?: now, updatedAt = now)
-        val id = db.upsertCard(toSave)
-        db.saveFieldValues(id, values)
+        val existing = if (cardId != 0L) db.getCard(cardId) else null
+        val name = values[KEY_NAME].orEmpty()
+        val relationship = values[KEY_RELATIONSHIP].orEmpty()
+        val meetingDate = values[KEY_MEETING_DATE]?.toLongOrNull()
+        val lastContact = values[KEY_LAST_CONTACT]?.toLongOrNull()
+        val subtitle = fields
+            .filter { it.key != KEY_NAME && (it.type == FieldType.TEXT || it.type == FieldType.MULTILINE_TEXT) }
+            .sortedBy { it.sortOrder }
+            .mapNotNull { f -> values[f.key]?.takeIf { it.isNotBlank() } }
+            .take(2)
+            .joinToString(" · ")
+        val card = Card(
+            id = cardId,
+            templateId = templateId,
+            avatarEmoji = avatarEmoji,
+            name = name,
+            subtitle = subtitle,
+            relationship = relationship,
+            meetingDate = meetingDate,
+            lastContact = lastContact,
+            createdAt = existing?.createdAt ?: now,
+            updatedAt = now
+        )
+        val id = db.upsertCard(card)
+        db.saveCardFields(id, fields)
+        db.saveCardValues(id, values)
         cards.value = db.getAllCards()
+        id
     }
 
     suspend fun deleteCard(id: Long) = withContext(Dispatchers.IO) {
@@ -482,26 +560,122 @@ object AppData {
         cards.value = db.getAllCards()
     }
 
-    suspend fun saveFieldDef(def: FieldDef) = withContext(Dispatchers.IO) {
-        val toSave = if (def.id == 0L) {
-            val next = db.getAllFieldDefs().maxOfOrNull { it.sortOrder }?.plus(1) ?: 0
-            def.copy(sortOrder = next)
-        } else {
-            val existing = db.getFieldDef(def.id)
-            def.copy(sortOrder = existing?.sortOrder ?: 0)
-        }
-        db.upsertFieldDef(toSave)
-        fieldDefs.value = db.getAllFieldDefs()
-    }
-
-    suspend fun deleteFieldDef(id: Long) = withContext(Dispatchers.IO) {
-        db.deleteFieldDef(id)
-        fieldDefs.value = db.getAllFieldDefs()
+    /** 给单张名片追加一个字段（本卡个性化）。 */
+    suspend fun addCardField(cardId: Long, field: CardField) = withContext(Dispatchers.IO) {
+        val existingFields = db.getCardFields(cardId)
+        if (existingFields.any { it.name == field.name }) return@withContext
+        val sortOrder = (existingFields.maxOfOrNull { it.sortOrder } ?: -1) + 1
+        val fields = existingFields + field.copy(sortOrder = sortOrder)
+        db.saveCardFields(cardId, fields)
+        val values = db.getCardValues(cardId).toMutableMap()
+        if (!values.containsKey(field.key)) values[field.key] = ""
+        db.saveCardValues(cardId, values)
+        syncCardColumns(cardId, fields, values)
         cards.value = db.getAllCards()
     }
 
-    suspend fun moveFieldDef(id: Long, up: Boolean) = withContext(Dispatchers.IO) {
-        db.moveFieldDef(id, up)
-        fieldDefs.value = db.getAllFieldDefs()
+    private fun syncCardColumns(cardId: Long, fields: List<CardField>, values: Map<String, String>) {
+        val card = db.getCard(cardId) ?: return
+        val name = values[KEY_NAME].orEmpty()
+        val relationship = values[KEY_RELATIONSHIP].orEmpty()
+        val meetingDate = values[KEY_MEETING_DATE]?.toLongOrNull()
+        val lastContact = values[KEY_LAST_CONTACT]?.toLongOrNull()
+        val subtitle = fields
+            .filter { it.key != KEY_NAME && (it.type == FieldType.TEXT || it.type == FieldType.MULTILINE_TEXT) }
+            .sortedBy { it.sortOrder }
+            .mapNotNull { f -> values[f.key]?.takeIf { it.isNotBlank() } }
+            .take(2)
+            .joinToString(" · ")
+        db.upsertCard(
+            card.copy(
+                name = name,
+                subtitle = subtitle,
+                relationship = relationship,
+                meetingDate = meetingDate,
+                lastContact = lastContact,
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+    }
+
+    // ---------- templates ----------
+
+    suspend fun getTemplate(id: Long): Template? = withContext(Dispatchers.IO) { db.getTemplate(id) }
+
+    suspend fun getTemplateFields(templateId: Long): List<TemplateField> =
+        withContext(Dispatchers.IO) { db.getTemplateFields(templateId) }
+
+    suspend fun getAllTemplateFields(): List<TemplateField> =
+        withContext(Dispatchers.IO) { db.getAllTemplateFields() }
+
+    suspend fun saveTemplate(
+        templateId: Long,
+        name: String,
+        isDefault: Boolean,
+        fields: List<TemplateField>
+    ): Long = withContext(Dispatchers.IO) {
+        val existing = if (templateId != 0L) db.getTemplate(templateId) else null
+        val nextSort = db.getAllTemplates().maxOfOrNull { it.sortOrder }?.plus(1) ?: 0
+        val id = db.upsertTemplate(
+            Template(
+                id = templateId,
+                name = name,
+                isDefault = isDefault,
+                sortOrder = existing?.sortOrder ?: nextSort
+            )
+        )
+        db.replaceTemplateFields(id, fields.mapIndexed { i, f -> f.copy(sortOrder = i) })
+        if (isDefault) {
+            db.clearDefaultTemplate()
+            db.upsertTemplate(Template(id = id, name = name, isDefault = true, sortOrder = existing?.sortOrder ?: nextSort))
+        }
+        templates.value = db.getAllTemplates()
+        id
+    }
+
+    suspend fun deleteTemplate(id: Long) = withContext(Dispatchers.IO) {
+        db.deleteTemplate(id)
+        templates.value = db.getAllTemplates()
+    }
+
+    suspend fun setDefaultTemplate(id: Long) = withContext(Dispatchers.IO) {
+        db.clearDefaultTemplate()
+        val t = db.getTemplate(id)
+        if (t != null) db.upsertTemplate(t.copy(isDefault = true))
+        templates.value = db.getAllTemplates()
+    }
+
+    // ---------- records ----------
+
+    suspend fun getRecords(cardId: Long): List<ContactRecord> =
+        withContext(Dispatchers.IO) { db.getRecords(cardId) }
+
+    suspend fun saveRecord(record: ContactRecord) = withContext(Dispatchers.IO) {
+        val toSave = if (record.id == 0L && record.createdAt == 0L) {
+            record.copy(createdAt = System.currentTimeMillis())
+        } else {
+            record
+        }
+        db.upsertRecord(toSave)
+        refreshLastContact(record.cardId)
+    }
+
+    suspend fun deleteRecord(id: Long) = withContext(Dispatchers.IO) {
+        val cardId = db.getRecordCardId(id)
+        db.deleteRecord(id)
+        cardId?.let { refreshLastContact(it) }
+    }
+
+    private fun refreshLastContact(cardId: Long) {
+        val maxDate = db.getMaxRecordDate(cardId)
+        val card = db.getCard(cardId) ?: return
+        val fields = db.getCardFields(cardId)
+        if (fields.any { it.key == KEY_LAST_CONTACT }) {
+            val values = db.getCardValues(cardId).toMutableMap()
+            if (maxDate == null) values.remove(KEY_LAST_CONTACT) else values[KEY_LAST_CONTACT] = maxDate.toString()
+            db.saveCardValues(cardId, values)
+        }
+        db.updateCardLastContact(cardId, maxDate, System.currentTimeMillis())
+        cards.value = db.getAllCards()
     }
 }

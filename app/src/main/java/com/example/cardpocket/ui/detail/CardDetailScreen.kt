@@ -45,6 +45,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
@@ -72,7 +73,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import com.example.cardpocket.data.AppData
+import com.example.cardpocket.data.model.CardField
 import com.example.cardpocket.data.model.ContactRecord
+import com.example.cardpocket.data.model.FieldType
+import com.example.cardpocket.data.model.TemplateField
 import com.example.cardpocket.ui.components.Avatar
 import com.example.cardpocket.ui.components.Badge
 import com.example.cardpocket.ui.components.CircularIconButton
@@ -98,15 +102,15 @@ fun CardDetailScreen(
     cardId: Long,
     onBack: () -> Unit,
     onEdit: () -> Unit,
-    onDeleted: () -> Unit,
-    onManageFields: () -> Unit
+    onDeleted: () -> Unit
 ) {
     val cards by AppData.cards.collectAsState()
-    val fieldDefs by AppData.fieldDefs.collectAsState()
-    var fieldValues by remember { mutableStateOf<Map<Long, String>>(emptyMap()) }
+    var fields by remember { mutableStateOf<List<CardField>>(emptyList()) }
+    var values by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var records by remember { mutableStateOf<List<ContactRecord>>(emptyList()) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var showAddRecord by remember { mutableStateOf(false) }
+    var showAddField by remember { mutableStateOf(false) }
     var addRecordDate by remember { mutableStateOf(System.currentTimeMillis()) }
     val scope = rememberCoroutineScope()
     val keyboard = LocalSoftwareKeyboardController.current
@@ -114,8 +118,8 @@ fun CardDetailScreen(
     LaunchedEffect(Unit) { keyboard?.hide() }
 
     LaunchedEffect(cardId) {
-        val vals = AppData.getFieldValues(cardId)
-        fieldValues = vals.associate { it.fieldId to it.value }
+        fields = AppData.getCardFields(cardId)
+        values = AppData.getCardValues(cardId)
         records = AppData.getRecords(cardId)
     }
 
@@ -178,13 +182,9 @@ fun CardDetailScreen(
                     Avatar(name = card.name, emoji = card.avatarEmoji, size = 88.dp)
                     Spacer(Modifier.height(12.dp))
                     Text(card.name, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-                    val subtitle = listOfNotNull(
-                        card.jobTitle.takeIf { it.isNotBlank() },
-                        card.company.takeIf { it.isNotBlank() }
-                    ).joinToString(" · ").ifBlank { card.nickname }
-                    if (subtitle.isNotBlank()) {
+                    if (card.subtitle.isNotBlank()) {
                         Spacer(Modifier.height(4.dp))
-                        Text(subtitle, fontSize = 14.sp, color = TextMuted, textAlign = TextAlign.Center)
+                        Text(card.subtitle, fontSize = 14.sp, color = TextMuted, textAlign = TextAlign.Center)
                     }
                     if (card.relationship.isNotBlank()) {
                         Spacer(Modifier.height(8.dp))
@@ -200,14 +200,9 @@ fun CardDetailScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(Modifier.padding(horizontal = 16.dp)) {
-                        DetailRow("所在城市", card.city.ifBlank { "未填写" })
-                        DetailDivider()
-                        DetailRow("认识时间", formatMonth(card.createdAt))
-                        DetailDivider()
-                        DetailRow("关系备注", card.note.ifBlank { "无" })
-                        fieldDefs.forEach { def ->
-                            DetailDivider()
-                            DetailRow(def.name, formatFieldValue(def.type, fieldValues[def.id]))
+                        fields.forEachIndexed { index, field ->
+                            DetailRow(field.name, formatFieldValue(field.type, values[field.key]))
+                            if (index < fields.lastIndex) DetailDivider()
                         }
                     }
                 }
@@ -229,7 +224,7 @@ fun CardDetailScreen(
                         Text("修改信息", fontSize = 14.sp, color = TextPrimary)
                     }
                     Button(
-                        onClick = onManageFields,
+                        onClick = { showAddField = true },
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(
@@ -296,6 +291,21 @@ fun CardDetailScreen(
             }
         )
     }
+
+    if (showAddField) {
+        AddFieldDialog(
+            existingNames = fields.map { it.name },
+            onDismiss = { showAddField = false },
+            onAdd = { field ->
+                scope.launch {
+                    AppData.addCardField(cardId, field)
+                    fields = AppData.getCardFields(cardId)
+                    values = AppData.getCardValues(cardId)
+                    showAddField = false
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -304,7 +314,7 @@ private fun DetailRow(label: String, value: String) {
         modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
         verticalAlignment = Alignment.Top
     ) {
-        Text(label, fontSize = 14.sp, color = TextMuted, modifier = Modifier.width(72.dp))
+        Text(label, fontSize = 14.sp, color = TextMuted, modifier = Modifier.width(88.dp))
         Text(value, fontSize = 14.sp, color = TextPrimary, modifier = Modifier.weight(1f))
     }
 }
@@ -312,6 +322,146 @@ private fun DetailRow(label: String, value: String) {
 @Composable
 private fun DetailDivider() {
     HorizontalDivider(color = DividerColor.copy(alpha = 0.75f))
+}
+
+private fun typeName(type: FieldType): String = when (type) {
+    FieldType.TEXT -> "文本"
+    FieldType.MULTILINE_TEXT -> "多行"
+    FieldType.DATE -> "日期"
+    FieldType.SINGLE_SELECT -> "单选"
+    FieldType.MULTI_SELECT -> "多选"
+    FieldType.SWITCH -> "开关"
+    else -> "文本"
+}
+
+@Composable
+private fun AddFieldDialog(
+    existingNames: List<String>,
+    onDismiss: () -> Unit,
+    onAdd: (CardField) -> Unit
+) {
+    var library by remember { mutableStateOf<List<TemplateField>>(emptyList()) }
+    var creating by remember { mutableStateOf(false) }
+    var name by remember { mutableStateOf("") }
+    var type by remember { mutableStateOf(FieldType.TEXT) }
+    var optionsText by remember { mutableStateOf("") }
+    var required by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        library = AppData.getAllTemplateFields()
+            .filter { it.name !in existingNames }
+            .distinctBy { it.name }
+    }
+
+    val parsedOptions = optionsText.split("\n").map { it.trim() }.filter { it.isNotBlank() }.distinct()
+    val isSelect = type == FieldType.SINGLE_SELECT || type == FieldType.MULTI_SELECT
+    val canCreate = name.isNotBlank() && name.trim() !in existingNames && (!isSelect || parsedOptions.isNotEmpty())
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (creating) "新建字段" else "增加字段") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                if (!creating) {
+                    if (library.isEmpty()) {
+                        Text("没有可添加的字段，试试新建一个", fontSize = 13.sp, color = TextMuted)
+                    }
+                    library.forEach { field ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable {
+                                    onAdd(
+                                        CardField(
+                                            key = field.key,
+                                            name = field.name,
+                                            type = field.type,
+                                            options = field.options,
+                                            required = false
+                                        )
+                                    )
+                                }
+                                .padding(horizontal = 8.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(field.name, fontSize = 15.sp, color = TextPrimary, modifier = Modifier.weight(1f))
+                            Text(typeName(field.type), fontSize = 11.sp, color = TextMuted)
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = { creating = true }) { Text("＋ 新建字段", color = Terracotta) }
+                } else {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("字段名称") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text("类型", fontSize = 13.sp, color = TextMuted)
+                    Spacer(Modifier.height(6.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            FieldType.TEXT, FieldType.MULTILINE_TEXT, FieldType.DATE,
+                            FieldType.SINGLE_SELECT, FieldType.MULTI_SELECT, FieldType.SWITCH
+                        ).forEach { t ->
+                            FilterChip(
+                                selected = type == t,
+                                onClick = { type = t },
+                                label = { Text(typeName(t), fontSize = 12.sp) }
+                            )
+                        }
+                    }
+                    if (isSelect) {
+                        Spacer(Modifier.height(10.dp))
+                        OutlinedTextField(
+                            value = optionsText,
+                            onValueChange = { optionsText = it },
+                            label = { Text("选项（每行一个）") },
+                            modifier = Modifier.fillMaxWidth().height(110.dp)
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("必填", fontSize = 14.sp, color = TextPrimary, modifier = Modifier.weight(1f))
+                        Switch(checked = required, onCheckedChange = { required = it })
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (creating) {
+                TextButton(
+                    enabled = canCreate,
+                    onClick = {
+                        onAdd(
+                            CardField(
+                                key = "c_" + java.util.UUID.randomUUID().toString().replace("-", "").take(10),
+                                name = name.trim(),
+                                type = type,
+                                options = if (isSelect) parsedOptions else emptyList(),
+                                required = required
+                            )
+                        )
+                    }
+                ) { Text("添加") }
+            } else {
+                TextButton(onClick = onDismiss) { Text("关闭") }
+            }
+        },
+        dismissButton = {
+            if (creating) {
+                TextButton(onClick = { creating = false }) { Text("返回") }
+            } else {
+                TextButton(onClick = onDismiss) { Text("取消") }
+            }
+        }
+    )
 }
 
 @Composable

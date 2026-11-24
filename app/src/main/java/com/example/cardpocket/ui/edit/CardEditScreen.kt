@@ -9,7 +9,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -45,9 +44,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -63,27 +60,20 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.cardpocket.data.AppData
-import com.example.cardpocket.data.model.Card
-import com.example.cardpocket.data.model.FieldDef
+import com.example.cardpocket.data.model.CardField
 import com.example.cardpocket.data.model.FieldType
-import com.example.cardpocket.data.model.OPTION_SEPARATOR
 import com.example.cardpocket.ui.theme.Bg
+import com.example.cardpocket.ui.theme.ChipBorder
 import com.example.cardpocket.ui.theme.DividerColor
-import com.example.cardpocket.ui.theme.IconChipGreen
 import com.example.cardpocket.ui.theme.SurfaceWhite
 import com.example.cardpocket.ui.theme.Terracotta
 import com.example.cardpocket.ui.theme.TextMuted
 import com.example.cardpocket.ui.theme.TextPrimary
 import com.example.cardpocket.util.formatDate
 import kotlinx.coroutines.launch
-
-private val relationshipPresets = listOf(
-    "家人", "朋友", "同事", "同学", "老师", "客户", "邻居", "网友", "一面之缘"
-)
 
 private val presetEmojis = listOf(
     "😀", "😎", "🤓", "😇", "🥰", "😺", "🐱", "🦊",
@@ -96,64 +86,63 @@ fun CardEditScreen(
     onDone: () -> Unit,
     onBack: () -> Unit
 ) {
-    val fieldDefs by AppData.fieldDefs.collectAsState()
-
-    var name by remember { mutableStateOf("") }
-    var jobTitle by remember { mutableStateOf("") }
-    var company by remember { mutableStateOf("") }
-    var city by remember { mutableStateOf("") }
-    var relationship by remember { mutableStateOf("") }
-    var note by remember { mutableStateOf("") }
+    var templateId by remember { mutableStateOf(0L) }
+    var templateName by remember { mutableStateOf("") }
     var avatarEmoji by remember { mutableStateOf("") }
-    var fieldValues by remember { mutableStateOf<Map<Long, String>>(emptyMap()) }
-    var error by remember { mutableStateOf<String?>(null) }
+    var fields by remember { mutableStateOf<List<CardField>>(emptyList()) }
+    var values by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var showPicker by remember { mutableStateOf(false) }
     var pickerVisible by remember { mutableStateOf(false) }
-
-    // 编辑时保留表单里不展示的原有字段，避免数据丢失
-    var originalCard by remember { mutableStateOf<Card?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var dateFieldKey by remember { mutableStateOf<String?>(null) }
 
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
 
     LaunchedEffect(cardId) {
         AppData.refresh()
-        val defs = AppData.fieldDefs.value
-        val card = cardId?.let { AppData.getCard(it) }
-        val vals = cardId?.let { AppData.getFieldValues(it) } ?: emptyList()
-        originalCard = card
-        name = card?.name ?: ""
-        jobTitle = card?.jobTitle ?: ""
-        company = card?.company ?: ""
-        city = card?.city ?: ""
-        relationship = card?.relationship ?: ""
-        note = card?.note ?: ""
-        avatarEmoji = card?.avatarEmoji ?: ""
-        fieldValues = defs.associate { d ->
-            d.id to (vals.firstOrNull { it.fieldId == d.id }?.value ?: "")
+        if (cardId != null) {
+            val card = AppData.getCard(cardId)
+            templateId = card?.templateId ?: 0L
+            templateName = AppData.getTemplate(templateId)?.name ?: ""
+            avatarEmoji = card?.avatarEmoji ?: ""
+            fields = AppData.getCardFields(cardId)
+            values = AppData.getCardValues(cardId)
+        } else {
+            showPicker = true
+        }
+    }
+
+    fun loadTemplate(id: Long) {
+        scope.launch {
+            val oldNameToValue = fields.associate { it.name to (values[it.key] ?: "") }
+            val tFields = AppData.getTemplateFields(id)
+            val newFields = tFields.mapIndexed { i, f ->
+                CardField(
+                    cardId = cardId ?: 0L,
+                    key = f.key,
+                    name = f.name,
+                    type = f.type,
+                    options = f.options,
+                    required = f.required,
+                    sortOrder = i
+                )
+            }
+            fields = newFields
+            values = newFields.associate { f -> f.key to (oldNameToValue[f.name] ?: "") }
+            templateId = id
+            templateName = AppData.getTemplate(id)?.name ?: ""
         }
     }
 
     fun save() {
-        val n = name.trim()
-        if (n.isEmpty()) {
-            error = "请输入姓名"
+        val missing = fields.firstOrNull { it.required && values[it.key].orEmpty().isBlank() }
+        if (missing != null) {
+            error = "请填写${missing.name}"
             return
         }
-        val original = originalCard
-        val card = Card(
-            id = cardId ?: 0L,
-            name = n,
-            nickname = original?.nickname ?: "",
-            avatarEmoji = avatarEmoji.trim(),
-            jobTitle = jobTitle.trim(),
-            company = company.trim(),
-            city = city.trim(),
-            relationship = relationship.trim(),
-            meetingDate = original?.meetingDate,
-            note = note
-        )
         scope.launch {
-            AppData.saveCard(card, fieldValues)
+            AppData.saveCard(cardId ?: 0L, templateId, avatarEmoji, fields, values)
             onDone()
         }
     }
@@ -165,7 +154,6 @@ fun CardEditScreen(
             .fillMaxSize()
             .background(Bg)
             .statusBarsPadding()
-            // 点击空白处收起输入法（输入框/按钮会自行消费点击，不受影响）
             .pointerInput(Unit) {
                 detectTapGestures { focusManager.clearFocus() }
             }
@@ -188,8 +176,13 @@ fun CardEditScreen(
                 fontWeight = FontWeight.SemiBold,
                 color = TextPrimary
             )
-            TextButton(onClick = { save() }) {
-                Text("保存", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+            TextButton(onClick = { save() }, enabled = fields.isNotEmpty()) {
+                Text(
+                    "保存",
+                    color = if (fields.isNotEmpty()) TextPrimary else TextMuted,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
         HorizontalDivider(color = DividerColor)
@@ -208,23 +201,42 @@ fun CardEditScreen(
                 onChange = { avatarEmoji = it }
             )
 
+            if (cardId == null) {
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(SurfaceWhite)
+                        .clickable { showPicker = true }
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("模板", fontSize = 13.sp, color = TextMuted)
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        text = templateName.ifBlank { "选择模板" },
+                        fontSize = 15.sp,
+                        color = TextPrimary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text("更换", fontSize = 13.sp, color = Terracotta)
+                }
+            }
+
             Spacer(Modifier.height(20.dp))
-            FormCard {
-                FormRow(
-                    label = "姓名",
-                    value = name,
-                    placeholder = "请输入姓名",
-                    onValueChange = {
-                        name = it
-                        if (error != null) error = null
+            if (fields.isNotEmpty()) {
+                FormCard {
+                    fields.forEachIndexed { index, field ->
+                        FieldInput(
+                            field = field,
+                            value = values[field.key].orEmpty(),
+                            onChange = { values = values + (field.key to it) },
+                            onPickDate = { dateFieldKey = field.key }
+                        )
+                        if (index < fields.lastIndex) FormDivider()
                     }
-                )
-                FormDivider()
-                FormRow("职位", jobTitle, "例如：产品经理", { jobTitle = it })
-                FormDivider()
-                FormRow("公司", company, "公司或组织", { company = it })
-                FormDivider()
-                FormRow("城市", city, "所在城市", { city = it })
+                }
             }
 
             val err = error
@@ -237,44 +249,223 @@ fun CardEditScreen(
                 )
             }
 
-            Spacer(Modifier.height(16.dp))
-            FormCard {
-                RelationshipRow(relationship = relationship, onChange = { relationship = it })
-                FormDivider()
-                NoteRow(
-                    label = "关系备注",
-                    value = note,
-                    placeholder = "记录你们如何认识、对方的关注方向等",
-                    onValueChange = { note = it }
-                )
-            }
-
-            if (fieldDefs.isNotEmpty()) {
-                Spacer(Modifier.height(16.dp))
-                FormCard {
-                    fieldDefs.forEachIndexed { index, def ->
-                        key(def.id) {
-                            CustomFieldRow(
-                                def = def,
-                                value = fieldValues[def.id] ?: "",
-                                onChange = { fieldValues = fieldValues + (def.id to it) }
-                            )
-                        }
-                        if (index < fieldDefs.lastIndex) FormDivider()
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(24.dp))
             Text(
                 text = "联系人信息仅保存在你的名片夹中",
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center,
                 fontSize = 12.sp,
-                color = TextMuted
+                color = TextMuted,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center
             )
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(32.dp))
         }
+    }
+
+    if (showPicker) {
+        TemplatePickerDialog(
+            onDismiss = { if (fields.isNotEmpty()) showPicker = false },
+            onPick = { id ->
+                showPicker = false
+                loadTemplate(id)
+            }
+        )
+    }
+
+    val dk = dateFieldKey
+    if (dk != null) {
+        val current = values[dk]?.toLongOrNull()
+        val state = rememberDatePickerState(initialSelectedDateMillis = current ?: System.currentTimeMillis())
+        DatePickerDialog(
+            onDismissRequest = { dateFieldKey = null },
+            confirmButton = {
+                TextButton(onClick = {
+                    state.selectedDateMillis?.let { values = values + (dk to it.toString()) }
+                    dateFieldKey = null
+                }) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { dateFieldKey = null }) { Text("取消") }
+            }
+        ) {
+            DatePicker(state = state)
+        }
+    }
+}
+
+@Composable
+private fun FieldInput(
+    field: CardField,
+    value: String,
+    onChange: (String) -> Unit,
+    onPickDate: () -> Unit
+) {
+    when (field.type) {
+        FieldType.TEXT -> InputRow(field.name, value, onChange, required = field.required)
+        FieldType.MULTILINE_TEXT -> MultilineRow(field.name, value, onChange, required = field.required)
+        FieldType.DATE -> DateRow(field.name, value, onPickDate)
+        FieldType.SINGLE_SELECT -> SelectRow(field.name, value, field.options, onChange)
+        FieldType.MULTI_SELECT -> MultiSelectRow(field.name, value, field.options, onChange)
+        FieldType.SWITCH -> SwitchRow(field.name, value, onChange)
+        else -> InputRow(field.name, value, onChange, required = field.required)
+    }
+}
+
+@Composable
+private fun InputRow(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    required: Boolean = false
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(56.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label + if (required) " *" else "",
+            fontSize = 14.sp,
+            color = TextPrimary,
+            modifier = Modifier.width(92.dp)
+        )
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            textStyle = TextStyle(fontSize = 15.sp, color = TextPrimary),
+            cursorBrush = SolidColor(Terracotta),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+            modifier = Modifier.weight(1f),
+            decorationBox = { inner ->
+                Box {
+                    if (value.isEmpty()) {
+                        Text("请输入$label", fontSize = 15.sp, color = TextMuted)
+                    }
+                    inner()
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun MultilineRow(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    required: Boolean = false
+) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Text(
+            text = label + if (required) " *" else "",
+            fontSize = 14.sp,
+            color = TextPrimary
+        )
+        Spacer(Modifier.height(6.dp))
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            textStyle = TextStyle(fontSize = 15.sp, color = TextPrimary),
+            cursorBrush = SolidColor(Terracotta),
+            modifier = Modifier.fillMaxWidth().height(72.dp),
+            decorationBox = { inner ->
+                Box {
+                    if (value.isEmpty()) {
+                        Text("请输入$label", fontSize = 15.sp, color = TextMuted)
+                    }
+                    inner()
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun DateRow(label: String, value: String, onPick: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onPick).padding(horizontal = 16.dp).height(56.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, fontSize = 14.sp, color = TextPrimary, modifier = Modifier.width(92.dp))
+        Text(
+            text = value.toLongOrNull()?.let { formatDate(it) } ?: "选择日期",
+            fontSize = 15.sp,
+            color = if (value.isBlank()) TextMuted else TextPrimary,
+            modifier = Modifier.weight(1f)
+        )
+        Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null, tint = TextMuted, modifier = Modifier.size(18.dp))
+    }
+}
+
+@Composable
+private fun SelectRow(label: String, value: String, options: List<String>, onChange: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable { expanded = true }.padding(horizontal = 16.dp).height(56.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(label, fontSize = 14.sp, color = TextPrimary, modifier = Modifier.width(92.dp))
+            Text(
+                text = value.ifBlank { "选择$label" },
+                fontSize = 15.sp,
+                color = if (value.isBlank()) TextMuted else TextPrimary,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null, tint = TextMuted, modifier = Modifier.size(18.dp))
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option) },
+                    onClick = {
+                        expanded = false
+                        onChange(option)
+                    }
+                )
+            }
+            DropdownMenuItem(
+                text = { Text("清空") },
+                onClick = {
+                    expanded = false
+                    onChange("")
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun MultiSelectRow(label: String, value: String, options: List<String>, onChange: (String) -> Unit) {
+    val selected = if (value.isBlank()) emptySet() else value.split("\u001F").toSet()
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Text(label, fontSize = 14.sp, color = TextPrimary)
+        Spacer(Modifier.height(8.dp))
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            options.forEach { option ->
+                FilterChip(
+                    selected = option in selected,
+                    onClick = {
+                        val next = if (option in selected) selected - option else selected + option
+                        onChange(next.joinToString("\u001F"))
+                    },
+                    label = { Text(option, fontSize = 12.sp) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SwitchRow(label: String, value: String, onChange: (String) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).height(56.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, fontSize = 14.sp, color = TextPrimary, modifier = Modifier.weight(1f))
+        Switch(
+            checked = value == "true",
+            onCheckedChange = { onChange(it.toString()) }
+        )
     }
 }
 
@@ -285,403 +476,103 @@ private fun AvatarPicker(
     onToggle: () -> Unit,
     onChange: (String) -> Unit
 ) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier
                 .size(96.dp)
                 .clip(RoundedCornerShape(28.dp))
-                .background(IconChipGreen)
+                .background(com.example.cardpocket.ui.theme.IconChipGreen)
                 .clickable(onClick = onToggle),
             contentAlignment = Alignment.Center
         ) {
-            val em = emoji.trim()
-            if (em.isNotEmpty()) {
-                Text(em, fontSize = 42.sp)
+            if (emoji.isBlank()) {
+                Text("＋", fontSize = 34.sp, color = TextMuted)
             } else {
-                Text("+", fontSize = 34.sp, color = TextMuted)
+                Text(emoji, fontSize = 40.sp)
             }
         }
         Spacer(Modifier.height(8.dp))
         Text(
             text = if (emoji.isBlank()) "添加头像" else "更换头像",
+            fontSize = 13.sp,
             color = Terracotta,
-            fontSize = 13.sp
+            modifier = Modifier.clickable(onClick = onToggle)
         )
         if (pickerVisible) {
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(10.dp))
             FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth()
             ) {
                 presetEmojis.forEach { e ->
-                    SelectableChip(
-                        text = e,
-                        selected = emoji == e,
-                        onClick = {
-                            onChange(if (emoji == e) "" else e)
-                            onToggle()
-                        },
-                        fontSize = 22.sp
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(SurfaceWhite)
+                            .clickable {
+                                onChange(e)
+                                onToggle()
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(e, fontSize = 20.sp)
+                    }
                 }
-                SelectableChip(
-                    text = "首字母",
-                    selected = emoji.isBlank(),
-                    onClick = { onChange(""); onToggle() },
-                    fontSize = 13.sp
-                )
             }
         }
     }
 }
 
 @Composable
-private fun SelectableChip(
-    text: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    fontSize: TextUnit = 20.sp
-) {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(
-                if (selected) MaterialTheme.colorScheme.primaryContainer
-                else MaterialTheme.colorScheme.surfaceVariant
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 6.dp)
-    ) {
-        Text(
-            text = text,
-            fontSize = fontSize,
-            color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-            else MaterialTheme.colorScheme.onSurfaceVariant,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-        )
-    }
-}
-
-@Composable
-private fun FormCard(content: @Composable ColumnScope.() -> Unit) {
+private fun FormCard(content: @Composable () -> Unit) {
     Surface(
         color = SurfaceWhite,
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(horizontal = 16.dp), content = content)
+        Column(content = { content() })
     }
 }
 
 @Composable
 private fun FormDivider() {
-    HorizontalDivider(color = DividerColor.copy(alpha = 0.75f))
+    HorizontalDivider(color = DividerColor, modifier = Modifier.padding(horizontal = 16.dp))
 }
 
 @Composable
-private fun FormRow(
-    label: String,
-    value: String,
-    placeholder: String,
-    onValueChange: (String) -> Unit
+private fun TemplatePickerDialog(
+    onDismiss: () -> Unit,
+    onPick: (Long) -> Unit
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = label,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Medium,
-            color = TextPrimary,
-            modifier = Modifier.width(72.dp)
-        )
-        BasicInput(
-            value = value,
-            onValueChange = onValueChange,
-            placeholder = placeholder,
-            modifier = Modifier.weight(1f)
-        )
-    }
-}
+    var templates by remember { mutableStateOf<List<com.example.cardpocket.data.model.Template>>(emptyList()) }
+    LaunchedEffect(Unit) { templates = AppData.templates.value.ifEmpty { runCatching { AppData.refresh(); AppData.templates.value }.getOrDefault(emptyList()) } }
 
-@Composable
-private fun NoteRow(
-    label: String,
-    value: String,
-    placeholder: String,
-    onValueChange: (String) -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 16.dp),
-        verticalAlignment = Alignment.Top
-    ) {
-        Text(
-            text = label,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Medium,
-            color = TextPrimary,
-            modifier = Modifier.width(72.dp).padding(top = 2.dp)
-        )
-        BasicInput(
-            value = value,
-            onValueChange = onValueChange,
-            placeholder = placeholder,
-            singleLine = false,
-            maxLines = 3,
-            modifier = Modifier.weight(1f)
-        )
-    }
-}
-
-@Composable
-private fun BasicInput(
-    value: String,
-    onValueChange: (String) -> Unit,
-    placeholder: String,
-    modifier: Modifier = Modifier,
-    singleLine: Boolean = true,
-    maxLines: Int = if (singleLine) 1 else 3,
-    keyboardType: KeyboardType = KeyboardType.Text
-) {
-    BasicTextField(
-        value = value,
-        onValueChange = onValueChange,
-        singleLine = singleLine,
-        maxLines = maxLines,
-        textStyle = TextStyle(fontSize = 15.sp, color = TextPrimary),
-        keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-        cursorBrush = SolidColor(Terracotta),
-        modifier = modifier.fillMaxWidth(),
-        decorationBox = { inner ->
-            Box {
-                if (value.isEmpty()) {
-                    Text(placeholder, fontSize = 15.sp, color = TextMuted)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("选择模板") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                templates.forEach { t ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { onPick(t.id) }
+                            .padding(horizontal = 12.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(t.name, fontSize = 15.sp, color = TextPrimary, modifier = Modifier.weight(1f))
+                        if (t.isDefault) {
+                            Text("默认", fontSize = 11.sp, color = Terracotta)
+                        }
+                    }
                 }
-                inner()
             }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
         }
     )
-}
-
-@Composable
-private fun RelationshipRow(relationship: String, onChange: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    var showCustom by remember { mutableStateOf(false) }
-    var customText by remember { mutableStateOf("") }
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = "关系标签",
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Medium,
-            color = TextPrimary,
-            modifier = Modifier.width(72.dp)
-        )
-        Box(Modifier.weight(1f)) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { expanded = true }
-                    .padding(vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = if (relationship.isBlank()) "选择关系" else relationship,
-                    fontSize = 15.sp,
-                    color = if (relationship.isBlank()) TextMuted else TextPrimary,
-                    modifier = Modifier.weight(1f)
-                )
-                Icon(
-                    Icons.Filled.KeyboardArrowDown,
-                    contentDescription = null,
-                    tint = TextMuted,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                relationshipPresets.forEach { preset ->
-                    DropdownMenuItem(
-                        text = { Text(preset) },
-                        onClick = {
-                            onChange(preset)
-                            expanded = false
-                        }
-                    )
-                }
-                DropdownMenuItem(
-                    text = { Text("自定义…") },
-                    onClick = {
-                        customText = relationship
-                        showCustom = true
-                        expanded = false
-                    }
-                )
-                if (relationship.isNotBlank()) {
-                    DropdownMenuItem(
-                        text = { Text("清空") },
-                        onClick = {
-                            onChange("")
-                            expanded = false
-                        }
-                    )
-                }
-            }
-        }
-    }
-
-    if (showCustom) {
-        AlertDialog(
-            onDismissRequest = { showCustom = false },
-            title = { Text("自定义关系") },
-            text = {
-                BasicTextField(
-                    value = customText,
-                    onValueChange = { customText = it },
-                    singleLine = true,
-                    textStyle = TextStyle(fontSize = 15.sp, color = TextPrimary),
-                    cursorBrush = SolidColor(Terracotta),
-                    modifier = Modifier.fillMaxWidth(),
-                    decorationBox = { inner ->
-                        Box {
-                            if (customText.isEmpty()) {
-                                Text("例如：球友", fontSize = 15.sp, color = TextMuted)
-                            }
-                            inner()
-                        }
-                    }
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    onChange(customText.trim())
-                    showCustom = false
-                }) { Text("确定") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCustom = false }) { Text("取消") }
-            }
-        )
-    }
-}
-
-@Composable
-private fun CustomFieldRow(def: FieldDef, value: String, onChange: (String) -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = def.name,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Medium,
-            color = TextPrimary,
-            modifier = Modifier.width(72.dp)
-        )
-        Box(Modifier.weight(1f)) {
-            when (def.type) {
-                FieldType.TEXT -> BasicInput(value, onChange, "请输入")
-                FieldType.MULTILINE_TEXT -> BasicInput(value, onChange, "请输入", singleLine = false, maxLines = 3)
-                FieldType.NUMBER -> BasicInput(value, onChange, "请输入数字", keyboardType = KeyboardType.Number)
-                FieldType.LINK -> BasicInput(value, onChange, "请输入链接", keyboardType = KeyboardType.Uri)
-                FieldType.DATE -> DateInput(value, onChange)
-                FieldType.SWITCH -> Switch(
-                    checked = value == "true",
-                    onCheckedChange = { onChange(if (it) "true" else "false") }
-                )
-                FieldType.SINGLE_SELECT -> SelectInput(def, value, onChange, multi = false)
-                FieldType.MULTI_SELECT -> SelectInput(def, value, onChange, multi = true)
-            }
-        }
-    }
-}
-
-@Composable
-private fun DateInput(value: String, onChange: (String) -> Unit) {
-    var show by remember { mutableStateOf(false) }
-    val millis = value.trim().toLongOrNull()
-
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .clickable { show = true }
-                .padding(vertical = 2.dp)
-        ) {
-            Text(
-                text = millis?.let { formatDate(it) } ?: "选择日期",
-                fontSize = 15.sp,
-                color = if (millis == null) TextMuted else TextPrimary
-            )
-        }
-        if (millis != null) {
-            TextButton(onClick = { onChange("") }) { Text("清除", fontSize = 12.sp) }
-        }
-    }
-
-    if (show) {
-        val state = rememberDatePickerState(initialSelectedDateMillis = millis)
-        DatePickerDialog(
-            onDismissRequest = { show = false },
-            confirmButton = {
-                TextButton(onClick = {
-                    onChange(state.selectedDateMillis?.toString() ?: "")
-                    show = false
-                }) { Text("确定") }
-            },
-            dismissButton = {
-                TextButton(onClick = { show = false }) { Text("取消") }
-            }
-        ) {
-            DatePicker(state = state)
-        }
-    }
-}
-
-@Composable
-private fun SelectInput(def: FieldDef, value: String, onChange: (String) -> Unit, multi: Boolean) {
-    val selected: Set<String> = if (multi) {
-        value.split(OPTION_SEPARATOR).filter { it.isNotBlank() }.toSet()
-    } else {
-        if (value.isNotBlank()) setOf(value) else emptySet()
-    }
-
-    if (def.options.isEmpty()) {
-        Text("（暂无选项）", fontSize = 13.sp, color = TextMuted)
-    } else {
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            def.options.forEach { opt ->
-                val isSel = opt in selected
-                FilterChip(
-                    selected = isSel,
-                    onClick = {
-                        val newSelected: Set<String> = if (multi) {
-                            if (isSel) selected - opt else selected + opt
-                        } else {
-                            if (isSel) emptySet() else setOf(opt)
-                        }
-                        onChange(newSelected.joinToString(OPTION_SEPARATOR))
-                    },
-                    label = { Text(opt, fontSize = 13.sp) }
-                )
-            }
-        }
-    }
 }

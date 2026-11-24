@@ -13,6 +13,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.example.cardpocket.ui.components.BottomNavBar
 import com.example.cardpocket.ui.components.MainTab
+import com.example.cardpocket.ui.components.TemplatePickerDialog
 import com.example.cardpocket.ui.list.CardListScreen
 import com.example.cardpocket.ui.profile.ProfileScreen
 import com.example.cardpocket.ui.theme.Bg
@@ -20,11 +21,12 @@ import com.example.cardpocket.ui.theme.Bg
 @Composable
 fun MainScreen(
     onCardClick: (Long) -> Unit,
-    onAddCard: () -> Unit,
+    onAddCard: (Long) -> Unit,
     onOpenTemplates: () -> Unit,
     onOpenFeedback: () -> Unit
 ) {
     var tab by remember { mutableStateOf(MainTab.Connections) }
+    var showTemplatePicker by remember { mutableStateOf(false) }
 
     Scaffold(
         containerColor = Bg,
@@ -33,7 +35,7 @@ fun MainScreen(
             BottomNavBar(
                 selected = tab,
                 onSelect = { tab = it },
-                onAdd = onAddCard
+                onAdd = { showTemplatePicker = true }
             )
         }
     ) { padding ->
@@ -50,5 +52,15 @@ fun MainScreen(
                 )
             }
         }
+    }
+
+    if (showTemplatePicker) {
+        TemplatePickerDialog(
+            onDismiss = { showTemplatePicker = false },
+            onPick = { template ->
+                showTemplatePicker = false
+                onAddCard(template.id)
+            }
+        )
     }
 }

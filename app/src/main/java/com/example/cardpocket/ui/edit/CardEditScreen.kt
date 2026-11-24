@@ -65,6 +65,7 @@ import androidx.compose.ui.unit.sp
 import com.example.cardpocket.data.AppData
 import com.example.cardpocket.data.model.CardField
 import com.example.cardpocket.data.model.FieldType
+import com.example.cardpocket.ui.components.TemplatePickerDialog
 import com.example.cardpocket.ui.theme.Bg
 import com.example.cardpocket.ui.theme.ChipBorder
 import com.example.cardpocket.ui.theme.DividerColor
@@ -83,6 +84,7 @@ private val presetEmojis = listOf(
 @Composable
 fun CardEditScreen(
     cardId: Long?,
+    initialTemplateId: Long?,
     onDone: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -99,7 +101,7 @@ fun CardEditScreen(
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
 
-    LaunchedEffect(cardId) {
+    LaunchedEffect(cardId, initialTemplateId) {
         AppData.refresh()
         if (cardId != null) {
             val card = AppData.getCard(cardId)
@@ -108,6 +110,14 @@ fun CardEditScreen(
             avatarEmoji = card?.avatarEmoji ?: ""
             fields = AppData.getCardFields(cardId)
             values = AppData.getCardValues(cardId)
+        } else if (initialTemplateId != null) {
+            val tFields = AppData.getTemplateFields(initialTemplateId)
+            fields = tFields.mapIndexed { i, f ->
+                CardField(0L, f.key, f.name, f.type, f.options, f.required, i)
+            }
+            values = fields.associate { it.key to "" }
+            templateId = initialTemplateId
+            templateName = AppData.getTemplate(initialTemplateId)?.name ?: ""
         } else {
             showPicker = true
         }
@@ -264,9 +274,9 @@ fun CardEditScreen(
     if (showPicker) {
         TemplatePickerDialog(
             onDismiss = { if (fields.isNotEmpty()) showPicker = false },
-            onPick = { id ->
+            onPick = { template ->
                 showPicker = false
-                loadTemplate(id)
+                loadTemplate(template.id)
             }
         )
     }
@@ -539,40 +549,4 @@ private fun FormCard(content: @Composable () -> Unit) {
 @Composable
 private fun FormDivider() {
     HorizontalDivider(color = DividerColor, modifier = Modifier.padding(horizontal = 16.dp))
-}
-
-@Composable
-private fun TemplatePickerDialog(
-    onDismiss: () -> Unit,
-    onPick: (Long) -> Unit
-) {
-    var templates by remember { mutableStateOf<List<com.example.cardpocket.data.model.Template>>(emptyList()) }
-    LaunchedEffect(Unit) { templates = AppData.templates.value.ifEmpty { runCatching { AppData.refresh(); AppData.templates.value }.getOrDefault(emptyList()) } }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("选择模板") },
-        text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                templates.forEach { t ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable { onPick(t.id) }
-                            .padding(horizontal = 12.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(t.name, fontSize = 15.sp, color = TextPrimary, modifier = Modifier.weight(1f))
-                        if (t.isDefault) {
-                            Text("默认", fontSize = 11.sp, color = Terracotta)
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
-        }
-    )
 }

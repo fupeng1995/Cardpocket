@@ -14,7 +14,7 @@ import com.example.cardpocket.ui.templates.TemplateListScreen
 sealed class Screen {
     data object Main : Screen()
     data class Detail(val cardId: Long) : Screen()
-    data class Edit(val cardId: Long?) : Screen()
+    data class Edit(val cardId: Long?, val templateId: Long? = null) : Screen()
     data object Templates : Screen()
     data class TemplateEdit(val templateId: Long?) : Screen()
     data object Feedback : Screen()
@@ -30,7 +30,7 @@ fun CardPocketApp() {
     when (val s = current) {
         Screen.Main -> MainScreen(
             onCardClick = { push(Screen.Detail(it)) },
-            onAddCard = { push(Screen.Edit(null)) },
+            onAddCard = { templateId -> push(Screen.Edit(null, templateId)) },
             onOpenTemplates = { push(Screen.Templates) },
             onOpenFeedback = { push(Screen.Feedback) }
         )
@@ -44,6 +44,7 @@ fun CardPocketApp() {
 
         is Screen.Edit -> CardEditScreen(
             cardId = s.cardId,
+            initialTemplateId = s.templateId,
             onDone = pop,
             onBack = pop
         )

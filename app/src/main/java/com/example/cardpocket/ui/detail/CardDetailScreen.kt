@@ -343,7 +343,9 @@ private fun TimelineCard(
 ) {
     var mode by remember { mutableStateOf(ViewMode.CALENDAR) }
 
-    val initialMillis = records.maxOfOrNull { it.dateMillis } ?: System.currentTimeMillis()
+    val initialMillis = remember(records) {
+        records.maxOfOrNull { it.dateMillis } ?: System.currentTimeMillis()
+    }
     val initCal = remember(initialMillis) {
         Calendar.getInstance().apply { timeInMillis = initialMillis }
     }
@@ -647,15 +649,16 @@ private fun DayCell(
     onClick: () -> Unit
 ) {
     Box(
-        modifier = Modifier.size(44.dp),
+        modifier = Modifier
+            .size(44.dp)
+            .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
         Box(
             modifier = Modifier
                 .size(30.dp)
                 .clip(CircleShape)
-                .background(if (selected) GreenDeep else Color.Transparent)
-                .clickable(onClick = onClick),
+                .background(if (selected) GreenDeep else Color.Transparent),
             contentAlignment = Alignment.Center
         ) {
             Text(

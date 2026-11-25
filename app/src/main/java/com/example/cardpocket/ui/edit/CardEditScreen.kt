@@ -52,6 +52,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.pointerInput
@@ -66,6 +67,8 @@ import com.example.cardpocket.data.AppData
 import com.example.cardpocket.data.model.CardField
 import com.example.cardpocket.data.model.FieldType
 import com.example.cardpocket.ui.components.TemplatePickerDialog
+import com.example.cardpocket.ui.components.AppDatePickerDialog
+import com.example.cardpocket.ui.components.DropdownSelect
 import com.example.cardpocket.ui.theme.Bg
 import com.example.cardpocket.ui.theme.ChipBorder
 import com.example.cardpocket.ui.theme.DividerColor
@@ -283,22 +286,14 @@ fun CardEditScreen(
 
     val dk = dateFieldKey
     if (dk != null) {
-        val current = values[dk]?.toLongOrNull()
-        val state = rememberDatePickerState(initialSelectedDateMillis = current ?: System.currentTimeMillis())
-        DatePickerDialog(
-            onDismissRequest = { dateFieldKey = null },
-            confirmButton = {
-                TextButton(onClick = {
-                    state.selectedDateMillis?.let { values = values + (dk to it.toString()) }
-                    dateFieldKey = null
-                }) { Text("确定") }
-            },
-            dismissButton = {
-                TextButton(onClick = { dateFieldKey = null }) { Text("取消") }
+        AppDatePickerDialog(
+            initialMillis = values[dk]?.toLongOrNull(),
+            onDismiss = { dateFieldKey = null },
+            onConfirm = { millis ->
+                values = if (millis == null) values - dk else values + (dk to millis.toString())
+                dateFieldKey = null
             }
-        ) {
-            DatePicker(state = state)
-        }
+        )
     }
 }
 
@@ -408,10 +403,21 @@ private fun DateRow(label: String, value: String, onPick: () -> Unit) {
 
 @Composable
 private fun SelectRow(label: String, value: String, options: List<String>, onChange: (String) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    Box {
+    DropdownSelect(
+        selected = value,
+        options = options,
+        label = { it },
+        onSelect = onChange,
+        modifier = Modifier.fillMaxWidth(),
+        header = "选择$label",
+        clearLabel = "清空",
+        onClear = { onChange("") }
+    ) { expanded ->
         Row(
-            modifier = Modifier.fillMaxWidth().clickable { expanded = true }.padding(horizontal = 16.dp).height(56.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .height(56.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(label, fontSize = 14.sp, color = TextPrimary, modifier = Modifier.width(92.dp))
@@ -421,24 +427,11 @@ private fun SelectRow(label: String, value: String, options: List<String>, onCha
                 color = if (value.isBlank()) TextMuted else TextPrimary,
                 modifier = Modifier.weight(1f)
             )
-            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null, tint = TextMuted, modifier = Modifier.size(18.dp))
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEach { option ->
-                DropdownMenuItem(
-                    text = { Text(option) },
-                    onClick = {
-                        expanded = false
-                        onChange(option)
-                    }
-                )
-            }
-            DropdownMenuItem(
-                text = { Text("清空") },
-                onClick = {
-                    expanded = false
-                    onChange("")
-                }
+            Icon(
+                Icons.Filled.KeyboardArrowDown,
+                contentDescription = null,
+                tint = TextMuted,
+                modifier = Modifier.size(18.dp).rotate(if (expanded) 180f else 0f)
             )
         }
     }

@@ -159,22 +159,7 @@ private fun TemplateBanner() {
             Spacer(Modifier.height(6.dp))
             Text("自定义字段 · 自由排序 · 新建时选用", color = Color.White.copy(alpha = 0.82f), fontSize = 12.sp)
         }
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 18.dp)
-                .size(36.dp)
-                .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.22f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = Color.White,
-                modifier = Modifier.size(20.dp)
-            )
-        }
+
     }
 }
 
@@ -185,8 +170,6 @@ private fun TemplateSectionHeader(count: Int) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text("我的模板", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-        Spacer(Modifier.width(8.dp))
-        Text("$count 个模板 · 点击编辑", fontSize = 12.sp, color = TextMuted)
     }
 }
 
@@ -230,10 +213,6 @@ private fun TemplateCard(
                     tint = TextMuted,
                     modifier = Modifier.size(16.dp)
                 )
-            }
-            if (fields.isNotEmpty()) {
-                Spacer(Modifier.height(8.dp))
-                Text(fields.joinToString(" · ") { it.name }, fontSize = 13.sp, color = TextMuted)
             }
             if (!template.isDefault) {
                 Spacer(Modifier.height(4.dp))

@@ -85,10 +85,6 @@ fun FieldFormDialog(
     var type by remember { mutableStateOf(initialType) }
     var optionsText by remember { mutableStateOf(initialOptions.joinToString("\n")) }
     var required by remember { mutableStateOf(initialRequired) }
-    var typeMenu by remember { mutableStateOf(false) }
-    var triggerWidthPx by remember { mutableStateOf(0) }
-    var triggerHeightPx by remember { mutableStateOf(0) }
-    val chevronRotation by animateFloatAsState(if (typeMenu) 180f else 0f, label = "chevron")
 
     val parsedOptions = optionsText.split("\n").map { it.trim() }.filter { it.isNotBlank() }.distinct()
     val isSelect = type == FieldType.SINGLE_SELECT || type == FieldType.MULTI_SELECT
@@ -129,19 +125,22 @@ fun FieldFormDialog(
                 Spacer(Modifier.height(16.dp))
                 Text("字段类型", fontSize = 13.sp, color = TextMuted)
                 Spacer(Modifier.height(8.dp))
-                Box {
+                DropdownSelect(
+                    selected = type,
+                    options = TYPE_OPTIONS.map { it.first },
+                    label = { typeLabel(it) },
+                    onSelect = { type = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !lockType,
+                    header = "选择字段类型"
+                ) { expanded ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(48.dp)
-                            .onGloballyPositioned {
-                                triggerWidthPx = it.size.width
-                                triggerHeightPx = it.size.height
-                            }
                             .clip(RoundedCornerShape(12.dp))
                             .background(SurfaceWhite)
                             .border(1.dp, ChipBorder, RoundedCornerShape(12.dp))
-                            .clickable(enabled = !lockType) { typeMenu = !typeMenu }
                             .padding(horizontal = 14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -150,63 +149,10 @@ fun FieldFormDialog(
                             Icons.Filled.KeyboardArrowDown,
                             contentDescription = null,
                             tint = TextMuted,
-                            modifier = Modifier.size(20.dp).rotate(chevronRotation)
+                            modifier = Modifier
+                                .size(20.dp)
+                                .rotate(if (expanded) 180f else 0f)
                         )
-                    }
-
-                    if (typeMenu && triggerWidthPx > 0) {
-                        Popup(
-                            offset = IntOffset(0, triggerHeightPx + 6),
-                            onDismissRequest = { typeMenu = false },
-                            properties = PopupProperties(focusable = true)
-                        ) {
-                            Surface(
-                                modifier = Modifier.width(with(LocalDensity.current) { triggerWidthPx.toDp() }),
-                                shape = RoundedCornerShape(16.dp),
-                                color = SurfaceWhite,
-                                shadowElevation = 12.dp
-                            ) {
-                                Column(Modifier.padding(6.dp)) {
-                                    Text(
-                                        text = "选择字段类型",
-                                        fontSize = 11.sp,
-                                        color = TextMuted,
-                                        modifier = Modifier.padding(start = 10.dp, top = 4.dp, bottom = 4.dp)
-                                    )
-                                    TYPE_OPTIONS.forEach { (t, label) ->
-                                        val selected = type == t
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .height(44.dp)
-                                                .clip(RoundedCornerShape(10.dp))
-                                                .background(if (selected) Terracotta.copy(alpha = 0.10f) else Color.Transparent)
-                                                .clickable {
-                                                    type = t
-                                                    typeMenu = false
-                                                }
-                                                .padding(horizontal = 10.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(
-                                                text = label,
-                                                fontSize = 14.sp,
-                                                color = if (selected) Terracotta else TextPrimary,
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                            if (selected) {
-                                                Icon(
-                                                    Icons.Filled.Check,
-                                                    contentDescription = null,
-                                                    tint = Terracotta,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
 

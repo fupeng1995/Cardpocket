@@ -1,6 +1,8 @@
 package com.example.cardpocket.ui.components
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,14 +12,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -29,15 +31,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import com.example.cardpocket.data.model.FieldType
 import com.example.cardpocket.ui.theme.Bg
+import com.example.cardpocket.ui.theme.ChipBorder
 import com.example.cardpocket.ui.theme.GreenDeep
 import com.example.cardpocket.ui.theme.IconChipGreen
 import com.example.cardpocket.ui.theme.SurfaceWhite
@@ -77,6 +86,9 @@ fun FieldFormDialog(
     var optionsText by remember { mutableStateOf(initialOptions.joinToString("\n")) }
     var required by remember { mutableStateOf(initialRequired) }
     var typeMenu by remember { mutableStateOf(false) }
+    var triggerWidthPx by remember { mutableStateOf(0) }
+    var triggerHeightPx by remember { mutableStateOf(0) }
+    val chevronRotation by animateFloatAsState(if (typeMenu) 180f else 0f, label = "chevron")
 
     val parsedOptions = optionsText.split("\n").map { it.trim() }.filter { it.isNotBlank() }.distinct()
     val isSelect = type == FieldType.SINGLE_SELECT || type == FieldType.MULTI_SELECT
@@ -121,10 +133,16 @@ fun FieldFormDialog(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .height(48.dp)
+                            .onGloballyPositioned {
+                                triggerWidthPx = it.size.width
+                                triggerHeightPx = it.size.height
+                            }
                             .clip(RoundedCornerShape(12.dp))
                             .background(SurfaceWhite)
-                            .clickable(enabled = !lockType) { typeMenu = true }
-                            .padding(horizontal = 14.dp, vertical = 14.dp),
+                            .border(1.dp, ChipBorder, RoundedCornerShape(12.dp))
+                            .clickable(enabled = !lockType) { typeMenu = !typeMenu }
+                            .padding(horizontal = 14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(typeLabel(type), fontSize = 15.sp, color = TextPrimary, modifier = Modifier.weight(1f))
@@ -132,18 +150,62 @@ fun FieldFormDialog(
                             Icons.Filled.KeyboardArrowDown,
                             contentDescription = null,
                             tint = TextMuted,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(20.dp).rotate(chevronRotation)
                         )
                     }
-                    DropdownMenu(expanded = typeMenu, onDismissRequest = { typeMenu = false }) {
-                        TYPE_OPTIONS.forEach { (t, label) ->
-                            DropdownMenuItem(
-                                text = { Text(label) },
-                                onClick = {
-                                    typeMenu = false
-                                    type = t
+
+                    if (typeMenu && triggerWidthPx > 0) {
+                        Popup(
+                            offset = IntOffset(0, triggerHeightPx + 6),
+                            onDismissRequest = { typeMenu = false },
+                            properties = PopupProperties(focusable = true)
+                        ) {
+                            Surface(
+                                modifier = Modifier.width(with(LocalDensity.current) { triggerWidthPx.toDp() }),
+                                shape = RoundedCornerShape(16.dp),
+                                color = SurfaceWhite,
+                                shadowElevation = 12.dp
+                            ) {
+                                Column(Modifier.padding(6.dp)) {
+                                    Text(
+                                        text = "选择字段类型",
+                                        fontSize = 11.sp,
+                                        color = TextMuted,
+                                        modifier = Modifier.padding(start = 10.dp, top = 4.dp, bottom = 4.dp)
+                                    )
+                                    TYPE_OPTIONS.forEach { (t, label) ->
+                                        val selected = type == t
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(44.dp)
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(if (selected) Terracotta.copy(alpha = 0.10f) else Color.Transparent)
+                                                .clickable {
+                                                    type = t
+                                                    typeMenu = false
+                                                }
+                                                .padding(horizontal = 10.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = label,
+                                                fontSize = 14.sp,
+                                                color = if (selected) Terracotta else TextPrimary,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            if (selected) {
+                                                Icon(
+                                                    Icons.Filled.Check,
+                                                    contentDescription = null,
+                                                    tint = Terracotta,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
-                            )
+                            }
                         }
                     }
                 }

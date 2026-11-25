@@ -36,7 +36,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -221,8 +221,12 @@ fun TemplateEditScreen(
                     }
                     Spacer(Modifier.height(12.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("设为默认模板", fontSize = 14.sp, color = TextPrimary, modifier = Modifier.weight(1f))
-                        Switch(checked = isDefault, onCheckedChange = { isDefault = it })
+                        Column(Modifier.weight(1f)) {
+                            Text("设为默认模板", fontSize = 15.sp, color = TextPrimary)
+                            Spacer(Modifier.height(2.dp))
+                            Text("新建联系人时默认选中此模板", fontSize = 12.sp, color = TextMuted)
+                        }
+                        Checkbox(checked = isDefault, onCheckedChange = { isDefault = it })
                     }
                 }
             }

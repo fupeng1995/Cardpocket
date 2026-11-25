@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -64,12 +66,15 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import com.example.cardpocket.data.AppData
@@ -80,11 +85,13 @@ import com.example.cardpocket.data.model.TemplateField
 import com.example.cardpocket.ui.components.Avatar
 import com.example.cardpocket.ui.components.Badge
 import com.example.cardpocket.ui.components.CircularIconButton
+import com.example.cardpocket.ui.components.AppDatePickerDialog
 import com.example.cardpocket.ui.components.FieldFormDialog
 import com.example.cardpocket.ui.theme.Bg
 import com.example.cardpocket.ui.theme.ChipBorder
 import com.example.cardpocket.ui.theme.DividerColor
 import com.example.cardpocket.ui.theme.GreenDeep
+import com.example.cardpocket.ui.theme.IconChipGreen
 import com.example.cardpocket.ui.theme.SurfaceWhite
 import com.example.cardpocket.ui.theme.Terracotta
 import com.example.cardpocket.ui.theme.TextMuted
@@ -754,87 +761,195 @@ private fun AddRecordDialog(
     var timeText by remember { mutableStateOf("") }
     var content by remember { mutableStateOf("") }
     var showDatePicker by remember { mutableStateOf(false) }
+    val canSave = content.isNotBlank()
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("添加联系记录") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(color = Bg, shape = RoundedCornerShape(28.dp)) {
+            Column(Modifier.padding(22.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "添加联系记录",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFEAE6DD))
+                            .clickable(onClick = onDismiss),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("×", fontSize = 18.sp, color = TextPrimary)
+                    }
+                }
+                Spacer(Modifier.height(16.dp))
+
+                RecordLabel("日期")
+                Spacer(Modifier.height(8.dp))
+                Surface(
+                    color = SurfaceWhite,
+                    shape = RoundedCornerShape(12.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { showDatePicker = true },
-                    verticalAlignment = Alignment.CenterVertically
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { showDatePicker = true }
                 ) {
-                    Text("日期", fontSize = 14.sp, color = TextMuted, modifier = Modifier.width(52.dp))
-                    Text(formatDate(dateMillis), fontSize = 14.sp, color = TextPrimary, modifier = Modifier.weight(1f))
-                }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("提醒", "消息", "见面", "电话").forEach { t ->
-                        FilterChip(
-                            selected = type == t,
-                            onClick = { type = t },
-                            label = { Text(t, fontSize = 13.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = Color(0xFFF3DDD2),
-                                selectedLabelColor = Terracotta
-                            )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = formatDate(dateMillis),
+                            fontSize = 15.sp,
+                            color = TextPrimary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(
+                            Icons.Filled.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
-                OutlinedTextField(
+
+                Spacer(Modifier.height(16.dp))
+                RecordLabel("类型")
+                Spacer(Modifier.height(8.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf("提醒", "消息", "见面", "电话").forEach { t ->
+                        RecordTypeChip(selected = type == t, label = t) { type = t }
+                    }
+                }
+
+                Spacer(Modifier.height(16.dp))
+                RecordLabel("时间")
+                Spacer(Modifier.height(8.dp))
+                RecordInputBox(
                     value = timeText,
                     onValueChange = { timeText = it },
-                    label = { Text("时间（如 10:20）") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    placeholder = "例如：10:20"
                 )
-                OutlinedTextField(
+
+                Spacer(Modifier.height(16.dp))
+                RecordLabel("记录内容")
+                Spacer(Modifier.height(8.dp))
+                RecordInputBox(
                     value = content,
                     onValueChange = { content = it },
-                    label = { Text("记录内容") },
-                    minLines = 2,
-                    modifier = Modifier.fillMaxWidth()
+                    placeholder = "记录这次联系的内容…",
+                    multiline = true
                 )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = content.isNotBlank(),
-                onClick = {
-                    onSave(
-                        ContactRecord(
-                            id = 0L,
-                            cardId = cardId,
-                            dateMillis = dateMillis,
-                            type = type,
-                            timeText = timeText.trim(),
-                            content = content.trim()
+
+                Spacer(Modifier.height(20.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = onDismiss) {
+                        Text("取消", color = TextMuted)
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(if (canSave) IconChipGreen else Color(0xFFEFEDE6))
+                            .clickable(enabled = canSave) {
+                                onSave(
+                                    ContactRecord(
+                                        id = 0L,
+                                        cardId = cardId,
+                                        dateMillis = dateMillis,
+                                        type = type,
+                                        timeText = timeText.trim(),
+                                        content = content.trim()
+                                    )
+                                )
+                            }
+                            .padding(horizontal = 22.dp, vertical = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "保存",
+                            fontSize = 15.sp,
+                            color = if (canSave) GreenDeep else TextMuted
                         )
-                    )
+                    }
                 }
-            ) { Text("保存") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            }
         }
-    )
+    }
 
     if (showDatePicker) {
-        val state = rememberDatePickerState(initialSelectedDateMillis = dateMillis)
-        DatePickerDialog(
-            onDismissRequest = { showDatePicker = false },
-            confirmButton = {
-                TextButton(onClick = {
-                    state.selectedDateMillis?.let { dateMillis = it }
-                    showDatePicker = false
-                }) { Text("确定") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDatePicker = false }) { Text("取消") }
+        AppDatePickerDialog(
+            initialMillis = dateMillis,
+            onDismiss = { showDatePicker = false },
+            onConfirm = { millis ->
+                if (millis != null) dateMillis = millis
+                showDatePicker = false
             }
-        ) {
-            DatePicker(state = state)
-        }
+        )
+    }
+}
+
+@Composable
+private fun RecordLabel(text: String) {
+    Text(text, fontSize = 13.sp, color = TextMuted)
+}
+
+@Composable
+private fun RecordTypeChip(selected: Boolean, label: String, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(if (selected) Terracotta.copy(alpha = 0.14f) else SurfaceWhite)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 9.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            fontSize = 13.sp,
+            color = if (selected) Terracotta else TextPrimary,
+            fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal
+        )
+    }
+}
+
+@Composable
+private fun RecordInputBox(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    multiline: Boolean = false
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(SurfaceWhite)
+            .padding(horizontal = 14.dp, vertical = 14.dp)
+    ) {
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = !multiline,
+            textStyle = TextStyle(fontSize = 15.sp, color = TextPrimary),
+            cursorBrush = SolidColor(Terracotta),
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (multiline) Modifier.height(72.dp) else Modifier),
+            decorationBox = { inner ->
+                Box {
+                    if (value.isEmpty()) {
+                        Text(placeholder, fontSize = 15.sp, color = TextMuted)
+                    }
+                    inner()
+                }
+            }
+        )
     }
 }

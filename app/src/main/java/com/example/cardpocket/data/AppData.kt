@@ -10,6 +10,7 @@ import com.example.cardpocket.data.model.CardField
 import com.example.cardpocket.data.model.ContactRecord
 import com.example.cardpocket.data.model.FieldType
 import com.example.cardpocket.data.model.OPTION_SEPARATOR
+import com.example.cardpocket.data.model.RelationshipTag
 import com.example.cardpocket.data.model.Template
 import com.example.cardpocket.data.model.TemplateField
 import kotlinx.coroutines.Dispatchers
@@ -17,7 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
 
 private const val DB_NAME = "card_pocket.db"
-private const val DB_VERSION = 6
+private const val DB_VERSION = 7
 
 /** 保留 key：界面按这些 key 识别“名字 / 关系 / 认识时间 / 最近联系”。 */
 const val KEY_NAME = "name"
@@ -113,6 +114,16 @@ private class CardDbHelper(context: Context) :
             )
             """.trimIndent()
         )
+        db.execSQL(
+            """
+            CREATE TABLE relationship_tags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL DEFAULT '',
+                sort_order INTEGER NOT NULL DEFAULT 0
+            )
+            """.trimIndent()
+        )
+        seedDefaultTags(db)
         seedDefaultTemplate(db)
     }
 
@@ -128,6 +139,19 @@ private class CardDbHelper(context: Context) :
             db.execSQL("DROP TABLE IF EXISTS card_fields")
             db.execSQL("DROP TABLE IF EXISTS card_values")
             onCreate(db)
+            return
+        }
+        if (oldVersion < 7) {
+            db.execSQL(
+                """
+                CREATE TABLE relationship_tags (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL DEFAULT '',
+                    sort_order INTEGER NOT NULL DEFAULT 0
+                )
+                """.trimIndent()
+            )
+            seedDefaultTags(db)
         }
     }
 
@@ -163,6 +187,18 @@ private class CardDbHelper(context: Context) :
                 db, templateId, key, name, type,
                 if (type == FieldType.SINGLE_SELECT) DEFAULT_RELATIONSHIPS else emptyList(),
                 required, index
+            )
+        }
+    }
+
+    private fun seedDefaultTags(db: SQLiteDatabase) {
+        DEFAULT_RELATIONSHIPS.forEachIndexed { index, name ->
+            db.insertOrThrow(
+                "relationship_tags", null,
+                ContentValues().apply {
+                    put("name", name)
+                    put("sort_order", index)
+                }
             )
         }
     }
@@ -381,6 +417,83 @@ private class CardDbHelper(context: Context) :
         }
     }
 
+    // ---------- relationship tags ----------
+
+    fun getRelationshipTags(): List<RelationshipTag> {
+        val out = mutableListOf<RelationshipTag>()
+        readableDatabase.rawQuery(
+            "SELECT * FROM relationship_tags ORDER BY sort_order ASC, id ASC", null
+        ).use { c ->
+            while (c.moveToNext()) {
+                out += RelationshipTag(
+                    id = c.getLong(c.getColumnIndexOrThrow("id")),
+                    name = c.getString(c.getColumnIndexOrThrow("name")),
+                    sortOrder = c.getInt(c.getColumnIndexOrThrow("sort_order"))
+                )
+            }
+        }
+        return out
+    }
+
+    fun getMaxTagSortOrder(): Int =
+        readableDatabase.rawQuery("SELECT MAX(sort_order) FROM relationship_tags", null).use { c ->
+            if (c.moveToFirst() && !c.isNull(0)) c.getInt(0) else -1
+        }
+
+    fun insertRelationshipTag(name: String, sortOrder: Int) {
+        writableDatabase.insertOrThrow(
+            "relationship_tags", null,
+            ContentValues().apply {
+                put("name", name)
+                put("sort_order", sortOrder)
+            }
+        )
+    }
+
+    fun renameRelationshipTagRow(id: Long, newName: String) {
+        writableDatabase.update(
+            "relationship_tags",
+            ContentValues().apply { put("name", newName) },
+            "id = ?",
+            arrayOf(id.toString())
+        )
+    }
+
+    fun deleteRelationshipTagRow(id: Long) {
+        writableDatabase.delete("relationship_tags", "id = ?", arrayOf(id.toString()))
+    }
+
+    fun updateTagSortOrder(id: Long, sortOrder: Int) {
+        writableDatabase.update(
+            "relationship_tags",
+            ContentValues().apply { put("sort_order", sortOrder) },
+            "id = ?",
+            arrayOf(id.toString())
+        )
+    }
+
+    fun countCardsWithRelationship(name: String): Int =
+        readableDatabase.rawQuery(
+            "SELECT COUNT(*) FROM cards WHERE relationship = ?", arrayOf(name)
+        ).use { c ->
+            if (c.moveToFirst()) c.getInt(0) else 0
+        }
+
+    fun renameRelationshipValue(oldName: String, newName: String) {
+        writableDatabase.update(
+            "cards",
+            ContentValues().apply { put("relationship", newName) },
+            "relationship = ?",
+            arrayOf(oldName)
+        )
+        writableDatabase.update(
+            "card_values",
+            ContentValues().apply { put("value", newName) },
+            "field_key = ? AND value = ?",
+            arrayOf(KEY_RELATIONSHIP, oldName)
+        )
+    }
+
     // ---------- records ----------
 
     fun getRecords(cardId: Long): List<ContactRecord> {
@@ -498,6 +611,7 @@ object AppData {
 
     val cards = MutableStateFlow<List<Card>>(emptyList())
     val templates = MutableStateFlow<List<Template>>(emptyList())
+    val relationshipTags = MutableStateFlow<List<RelationshipTag>>(emptyList())
 
     fun init(context: Context) {
         if (!::db.isInitialized) db = CardDbHelper(context.applicationContext)
@@ -507,6 +621,60 @@ object AppData {
         db.seedDefaultTemplateIfEmpty()
         cards.value = db.getAllCards()
         templates.value = db.getAllTemplates()
+        relationshipTags.value = db.getRelationshipTags()
+    }
+
+    suspend fun addRelationshipTag(name: String): Boolean = withContext(Dispatchers.IO) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return@withContext false
+        if (db.getRelationshipTags().any { it.name == trimmed }) return@withContext false
+        db.insertRelationshipTag(trimmed, db.getMaxTagSortOrder() + 1)
+        relationshipTags.value = db.getRelationshipTags()
+        true
+    }
+
+    suspend fun renameRelationshipTag(id: Long, newName: String): Boolean = withContext(Dispatchers.IO) {
+        val trimmed = newName.trim()
+        if (trimmed.isEmpty()) return@withContext false
+        val tags = db.getRelationshipTags()
+        val target = tags.firstOrNull { it.id == id } ?: return@withContext false
+        if (tags.any { it.id != id && it.name == trimmed }) return@withContext false
+        db.renameRelationshipTagRow(id, trimmed)
+        db.renameRelationshipValue(target.name, trimmed)
+        relationshipTags.value = db.getRelationshipTags()
+        cards.value = db.getAllCards()
+        true
+    }
+
+    suspend fun deleteRelationshipTag(id: Long): Boolean = withContext(Dispatchers.IO) {
+        val tags = db.getRelationshipTags()
+        val target = tags.firstOrNull { it.id == id } ?: return@withContext false
+        if (db.countCardsWithRelationship(target.name) > 0) return@withContext false
+        db.deleteRelationshipTagRow(id)
+        relationshipTags.value = db.getRelationshipTags()
+        true
+    }
+
+    suspend fun moveRelationshipTag(id: Long, up: Boolean) = withContext(Dispatchers.IO) {
+        val tags = db.getRelationshipTags().toMutableList()
+        val index = tags.indexOfFirst { it.id == id }
+        if (index < 0) return@withContext
+        val other = if (up) index - 1 else index + 1
+        if (other !in tags.indices) return@withContext
+        val a = tags[index]
+        val b = tags[other]
+        db.updateTagSortOrder(a.id, b.sortOrder)
+        db.updateTagSortOrder(b.id, a.sortOrder)
+        relationshipTags.value = db.getRelationshipTags()
+    }
+
+    suspend fun reorderRelationshipTags(from: Int, to: Int) = withContext(Dispatchers.IO) {
+        val tags = db.getRelationshipTags().toMutableList()
+        if (from !in tags.indices || to !in tags.indices || from == to) return@withContext
+        val item = tags.removeAt(from)
+        tags.add(to, item)
+        tags.forEachIndexed { i, t -> db.updateTagSortOrder(t.id, i) }
+        relationshipTags.value = db.getRelationshipTags()
     }
 
     suspend fun getCard(id: Long): Card? = withContext(Dispatchers.IO) { db.getCard(id) }

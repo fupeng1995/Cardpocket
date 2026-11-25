@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import com.example.cardpocket.ui.detail.CardDetailScreen
 import com.example.cardpocket.ui.edit.CardEditScreen
 import com.example.cardpocket.ui.feedback.FeedbackScreen
+import com.example.cardpocket.ui.relationships.RelationshipTagsScreen
 import com.example.cardpocket.ui.templates.TemplateEditScreen
 import com.example.cardpocket.ui.templates.TemplateListScreen
 
@@ -17,6 +18,7 @@ sealed class Screen {
     data class Edit(val cardId: Long?, val templateId: Long? = null) : Screen()
     data object Templates : Screen()
     data class TemplateEdit(val templateId: Long?) : Screen()
+    data object RelationshipTags : Screen()
     data object Feedback : Screen()
 }
 
@@ -32,7 +34,8 @@ fun CardPocketApp() {
             onCardClick = { push(Screen.Detail(it)) },
             onAddCard = { templateId -> push(Screen.Edit(null, templateId)) },
             onOpenTemplates = { push(Screen.Templates) },
-            onOpenFeedback = { push(Screen.Feedback) }
+            onOpenFeedback = { push(Screen.Feedback) },
+            onOpenRelationshipTags = { push(Screen.RelationshipTags) }
         )
 
         is Screen.Detail -> CardDetailScreen(
@@ -60,5 +63,7 @@ fun CardPocketApp() {
         )
 
         Screen.Feedback -> FeedbackScreen(onBack = pop)
+
+        Screen.RelationshipTags -> RelationshipTagsScreen(onBack = pop)
     }
 }

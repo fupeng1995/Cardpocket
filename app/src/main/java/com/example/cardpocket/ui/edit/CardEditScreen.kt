@@ -44,6 +44,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,6 +65,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.cardpocket.data.AppData
+import com.example.cardpocket.data.KEY_RELATIONSHIP
 import com.example.cardpocket.data.model.CardField
 import com.example.cardpocket.data.model.FieldType
 import com.example.cardpocket.ui.components.TemplatePickerDialog
@@ -101,6 +103,7 @@ fun CardEditScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var dateFieldKey by remember { mutableStateOf<String?>(null) }
 
+    val relationshipTags by AppData.relationshipTags.collectAsState()
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
 
@@ -245,7 +248,8 @@ fun CardEditScreen(
                             field = field,
                             value = values[field.key].orEmpty(),
                             onChange = { values = values + (field.key to it) },
-                            onPickDate = { dateFieldKey = field.key }
+                            onPickDate = { dateFieldKey = field.key },
+                            relationshipOptions = relationshipTags.map { it.name }
                         )
                         if (index < fields.lastIndex) FormDivider()
                     }
@@ -302,13 +306,19 @@ private fun FieldInput(
     field: CardField,
     value: String,
     onChange: (String) -> Unit,
-    onPickDate: () -> Unit
+    onPickDate: () -> Unit,
+    relationshipOptions: List<String>
 ) {
     when (field.type) {
         FieldType.TEXT -> InputRow(field.name, value, onChange, required = field.required)
         FieldType.MULTILINE_TEXT -> MultilineRow(field.name, value, onChange, required = field.required)
         FieldType.DATE -> DateRow(field.name, value, onPickDate)
-        FieldType.SINGLE_SELECT -> SelectRow(field.name, value, field.options, onChange)
+        FieldType.SINGLE_SELECT -> SelectRow(
+            field.name,
+            value,
+            if (field.key == KEY_RELATIONSHIP) relationshipOptions else field.options,
+            onChange
+        )
         FieldType.MULTI_SELECT -> MultiSelectRow(field.name, value, field.options, onChange)
         FieldType.SWITCH -> SwitchRow(field.name, value, onChange)
         else -> InputRow(field.name, value, onChange, required = field.required)

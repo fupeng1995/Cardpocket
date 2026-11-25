@@ -23,7 +23,8 @@ fun MainScreen(
     onCardClick: (Long) -> Unit,
     onAddCard: (Long) -> Unit,
     onOpenTemplates: () -> Unit,
-    onOpenFeedback: () -> Unit
+    onOpenFeedback: () -> Unit,
+    onOpenRelationshipTags: () -> Unit
 ) {
     var tab by remember { mutableStateOf(MainTab.Connections) }
     var showTemplatePicker by remember { mutableStateOf(false) }
@@ -48,7 +49,8 @@ fun MainScreen(
                 MainTab.Connections -> CardListScreen(onCardClick = onCardClick)
                 MainTab.Profile -> ProfileScreen(
                     onOpenTemplates = onOpenTemplates,
-                    onOpenFeedback = onOpenFeedback
+                    onOpenFeedback = onOpenFeedback,
+                    onOpenRelationshipTags = onOpenRelationshipTags
                 )
             }
         }

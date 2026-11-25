@@ -77,6 +77,8 @@ fun FieldFormDialog(
     initialRequired: Boolean = false,
     lockType: Boolean = false,
     lockRequired: Boolean = false,
+    optionsLocked: Boolean = false,
+    optionsNote: String? = null,
     existingNames: List<String> = emptyList(),
     onDismiss: () -> Unit,
     onConfirm: (name: String, type: FieldType, options: List<String>, required: Boolean) -> Unit
@@ -158,14 +160,38 @@ fun FieldFormDialog(
 
                 if (isSelect) {
                     Spacer(Modifier.height(16.dp))
-                    Text("选项（每行一个）", fontSize = 13.sp, color = TextMuted)
-                    Spacer(Modifier.height(8.dp))
-                    InputBox(
-                        value = optionsText,
-                        onValueChange = { optionsText = it },
-                        placeholder = "例如：家人、朋友、同事",
-                        multiline = true
+                    Text(
+                        text = if (optionsLocked) "选项" else "选项（每行一个）",
+                        fontSize = 13.sp,
+                        color = TextMuted
                     )
+                    Spacer(Modifier.height(8.dp))
+                    if (optionsLocked) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(SurfaceWhite)
+                                .padding(horizontal = 14.dp, vertical = 14.dp)
+                        ) {
+                            Text(
+                                text = parsedOptions.joinToString("、").ifBlank { "暂无标签" },
+                                fontSize = 14.sp,
+                                color = TextPrimary
+                            )
+                        }
+                        if (optionsNote != null) {
+                            Spacer(Modifier.height(6.dp))
+                            Text(optionsNote, fontSize = 11.sp, color = TextMuted)
+                        }
+                    } else {
+                        InputBox(
+                            value = optionsText,
+                            onValueChange = { optionsText = it },
+                            placeholder = "例如：家人、朋友、同事",
+                            multiline = true
+                        )
+                    }
                 }
 
                 Spacer(Modifier.height(16.dp))

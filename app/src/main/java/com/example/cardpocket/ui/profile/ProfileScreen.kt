@@ -59,7 +59,11 @@ import com.example.cardpocket.ui.theme.TextPrimary
 import com.example.cardpocket.util.isSameMonth
 
 @Composable
-fun ProfileScreen(onOpenTemplates: () -> Unit, onOpenFeedback: () -> Unit) {
+fun ProfileScreen(
+    onOpenTemplates: () -> Unit,
+    onOpenFeedback: () -> Unit,
+    onOpenRelationshipTags: () -> Unit
+) {
     val cards by AppData.cards.collectAsState()
     val templateList by AppData.templates.collectAsState()
     var showAbout by remember { mutableStateOf(false) }
@@ -82,7 +86,7 @@ fun ProfileScreen(onOpenTemplates: () -> Unit, onOpenFeedback: () -> Unit) {
         item { ProfileHeader(onSettings = { showAbout = true }) }
         item { ProfileCard() }
         item { ProfileStats(friends = cards.size, templates = templateList.size, interactions = interactions) }
-        item { MenuList(onOpenTemplates = onOpenTemplates, onOpenFeedback = onOpenFeedback, onComingSoon = { showComingSoon = it }) }
+        item { MenuList(onOpenTemplates = onOpenTemplates, onOpenFeedback = onOpenFeedback, onOpenRelationshipTags = onOpenRelationshipTags, onComingSoon = { showComingSoon = it }) }
     }
 }
 
@@ -183,11 +187,16 @@ private fun StatDivider() {
 private fun MenuList(
     onOpenTemplates: () -> Unit,
     onOpenFeedback: () -> Unit,
+    onOpenRelationshipTags: () -> Unit,
     onComingSoon: (String) -> Unit
 ) {
     Column(Modifier.padding(horizontal = 20.dp)) {
         MenuRow("我的名片模板", IconChipBeige, onClick = onOpenTemplates) {
             Icon(Icons.Filled.AccountBox, contentDescription = null, tint = TextPrimary, modifier = Modifier.size(20.dp))
+        }
+        MenuDivider()
+        MenuRow("关系标签管理", IconChipBlue, onClick = onOpenRelationshipTags) {
+            Icon(Icons.Filled.Person, contentDescription = null, tint = TextPrimary, modifier = Modifier.size(20.dp))
         }
         MenuDivider()
         MenuRow("数据备份", IconChipBlue, onClick = { onComingSoon("数据备份") }) {

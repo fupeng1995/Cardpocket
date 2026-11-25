@@ -61,3 +61,10 @@ data class CardField(
     val required: Boolean = false,
     val sortOrder: Int = 0
 )
+
+/** 全局关系标签（由「关系标签管理」统一维护）。 */
+data class RelationshipTag(
+    val id: Long,
+    val name: String,
+    val sortOrder: Int = 0
+)

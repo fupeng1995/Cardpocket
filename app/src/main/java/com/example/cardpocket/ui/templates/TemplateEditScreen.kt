@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.example.cardpocket.data.AppData
 import com.example.cardpocket.data.KEY_NAME
+import com.example.cardpocket.data.KEY_RELATIONSHIP
 import com.example.cardpocket.data.model.FieldType
 import com.example.cardpocket.data.model.TemplateField
 import com.example.cardpocket.ui.components.CircularIconButton
@@ -479,15 +480,19 @@ private fun FieldEditorDialog(
     onSave: (name: String, type: FieldType, options: List<String>, required: Boolean) -> Unit
 ) {
     val isNameField = initial?.key == KEY_NAME
+    val isRelationship = initial?.key == KEY_RELATIONSHIP
+    val relationshipOptions = AppData.relationshipTags.value.map { it.name }
     FieldFormDialog(
         title = if (initial == null) "添加字段" else "编辑字段",
         confirmText = if (initial == null) "确认添加" else "保存",
         initialName = initial?.name ?: "",
         initialType = initial?.type ?: FieldType.TEXT,
-        initialOptions = initial?.options ?: emptyList(),
+        initialOptions = if (isRelationship) relationshipOptions else (initial?.options ?: emptyList()),
         initialRequired = initial?.required ?: false,
         lockType = isNameField,
         lockRequired = isNameField,
+        optionsLocked = isRelationship,
+        optionsNote = if (isRelationship) "关系标签由「我的 › 关系标签管理」统一维护" else null,
         existingNames = existingNames,
         onDismiss = onDismiss,
         onConfirm = onSave

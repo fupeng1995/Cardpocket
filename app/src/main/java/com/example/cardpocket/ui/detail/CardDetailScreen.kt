@@ -2,9 +2,12 @@
 
 package com.example.cardpocket.ui.detail
 
+import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -74,8 +77,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import com.example.cardpocket.data.AppData
 import com.example.cardpocket.data.model.CardField
@@ -259,6 +263,21 @@ fun CardDetailScreen(
                 Spacer(Modifier.height(24.dp))
             }
         }
+
+        if (showAddRecord) {
+            AddRecordOverlay(
+                cardId = cardId,
+                initialDateMillis = addRecordDate,
+                onDismiss = { showAddRecord = false },
+                onSave = { rec ->
+                    scope.launch {
+                        AppData.saveRecord(rec)
+                        records = AppData.getRecords(cardId)
+                        showAddRecord = false
+                    }
+                }
+            )
+        }
     }
 
     if (showDeleteDialog) {
@@ -281,21 +300,6 @@ fun CardDetailScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteDialog = false }) { Text("取消") }
-            }
-        )
-    }
-
-    if (showAddRecord) {
-        AddRecordDialog(
-            cardId = cardId,
-            initialDateMillis = addRecordDate,
-            onDismiss = { showAddRecord = false },
-            onSave = { rec ->
-                scope.launch {
-                    AppData.saveRecord(rec)
-                    records = AppData.getRecords(cardId)
-                    showAddRecord = false
-                }
             }
         )
     }
@@ -687,7 +691,7 @@ private fun DayCell(
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .offset(x = 3.dp, y = (-5).dp)
+                    .offset(x = (-4).dp, y = 2.dp)
                     .size(14.dp)
                     .clip(CircleShape)
                     .background(Terracotta),
@@ -750,7 +754,7 @@ private fun DashedAddButton(text: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun AddRecordDialog(
+private fun AddRecordOverlay(
     cardId: Long,
     initialDateMillis: Long,
     onDismiss: () -> Unit,
@@ -762,10 +766,36 @@ private fun AddRecordDialog(
     var content by remember { mutableStateOf("") }
     var showDatePicker by remember { mutableStateOf(false) }
     val canSave = content.isNotBlank()
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
 
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(color = Bg, shape = RoundedCornerShape(28.dp)) {
-            Column(Modifier.padding(22.dp)) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.45f))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onDismiss
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            color = Bg,
+            shape = RoundedCornerShape(28.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        focusManager.clearFocus(force = true)
+                        keyboard?.hide()
+                    }
+                    .padding(22.dp)
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "添加联系记录",

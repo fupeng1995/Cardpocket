@@ -106,8 +106,11 @@ fun CardListScreen(onCardClick: (Long) -> Unit) {
 
     LaunchedEffect(Unit) { AppData.refresh() }
 
-    val relationships = remember(cards) {
-        listOf("全部") + cards.map { it.relationship }.filter { it.isNotBlank() }.distinct()
+    val tagLibrary by AppData.relationshipTags.collectAsState()
+    val relationships = remember(cards, tagLibrary) {
+        val used = cards.map { it.relationship }.filter { it.isNotBlank() }
+        val names = tagLibrary.map { it.name } + used
+        listOf("全部") + names.distinct()
     }
     LaunchedEffect(relationships, selectedRel) {
         if (selectedRel !in relationships) selectedRel = "全部"
@@ -164,7 +167,7 @@ fun CardListScreen(onCardClick: (Long) -> Unit) {
             )
         }
         if (visible.isEmpty()) {
-            item { EmptyState(isSearching = query.isNotEmpty() || selectedRel != "全部") }
+            item { EmptyState(query = query, selectedRel = selectedRel) }
         } else {
             items(visible, key = { it.id }) { card ->
                 Column {
@@ -294,29 +297,36 @@ private fun RelationshipChips(
     selected: String,
     onSelect: (String) -> Unit
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+            .padding(horizontal = 20.dp, vertical = 6.dp)
     ) {
-        relationships.forEach { rel ->
-            val active = rel == selected
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(if (active) GreenDeep else SurfaceWhite)
-                    .border(1.dp, if (active) GreenDeep else ChipBorder, RoundedCornerShape(50))
-                    .clickable { onSelect(rel) }
-                    .padding(horizontal = 18.dp, vertical = 9.dp)
-            ) {
-                Text(
-                    text = rel,
-                    color = if (active) Color.White else TextPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = if (active) FontWeight.Medium else FontWeight.Normal
-                )
+        Text("关系标签", fontSize = 12.sp, color = TextMuted)
+        Spacer(Modifier.height(8.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            relationships.forEach { rel ->
+                val active = rel == selected
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(if (active) GreenDeep else SurfaceWhite)
+                        .border(1.dp, if (active) GreenDeep else ChipBorder, RoundedCornerShape(50))
+                        .clickable { onSelect(rel) }
+                        .padding(horizontal = 18.dp, vertical = 9.dp)
+                ) {
+                    Text(
+                        text = rel,
+                        color = if (active) Color.White else TextPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = if (active) FontWeight.Medium else FontWeight.Normal
+                    )
+                }
             }
         }
     }
@@ -421,7 +431,9 @@ private fun ContactRow(card: Card, onClick: () -> Unit) {
 }
 
 @Composable
-private fun EmptyState(isSearching: Boolean) {
+private fun EmptyState(query: String, selectedRel: String) {
+    val searching = query.isNotBlank()
+    val filtered = selectedRel != "全部"
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -430,14 +442,22 @@ private fun EmptyState(isSearching: Boolean) {
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                text = if (isSearching) "没有找到匹配的名片" else "还没有名片",
+                text = when {
+                    searching -> "没有找到匹配的名片"
+                    filtered -> "「$selectedRel」标签下还没有名片"
+                    else -> "还没有名片"
+                },
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Medium,
                 color = TextPrimary
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                text = if (isSearching) "换个关键词或筛选试试" else "点击下方 + 开始收录你认识的人",
+                text = when {
+                    searching -> "换个关键词或筛选试试"
+                    filtered -> "给名片设置该标签后，就会出现在这里"
+                    else -> "点击下方 + 开始收录你认识的人"
+                },
                 fontSize = 13.sp,
                 color = TextMuted
             )

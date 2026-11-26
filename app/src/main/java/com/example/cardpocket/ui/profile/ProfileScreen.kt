@@ -67,7 +67,6 @@ fun ProfileScreen(
     val cards by AppData.cards.collectAsState()
     val templateList by AppData.templates.collectAsState()
     var showAbout by remember { mutableStateOf(false) }
-    var showComingSoon by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         AppData.refresh()
@@ -84,9 +83,8 @@ fun ProfileScreen(
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
         item { ProfileHeader(onSettings = { showAbout = true }) }
-        item { ProfileCard() }
         item { ProfileStats(friends = cards.size, templates = templateList.size, interactions = interactions) }
-        item { MenuList(onOpenTemplates = onOpenTemplates, onOpenFeedback = onOpenFeedback, onOpenRelationshipTags = onOpenRelationshipTags, onComingSoon = { showComingSoon = it }) }
+        item { MenuList(onOpenTemplates = onOpenTemplates, onOpenFeedback = onOpenFeedback, onOpenRelationshipTags = onOpenRelationshipTags) }
     }
 }
 
@@ -114,41 +112,6 @@ private fun ProfileHeader(onSettings: () -> Unit) {
                     modifier = Modifier.size(20.dp)
                 )
             }
-        }
-    }
-}
-
-@Composable
-private fun ProfileCard() {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(24.dp))
-            .background(GreenDeep)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(18.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Avatar(name = "名片夹用户", emoji = "", size = 52.dp)
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text("名片夹用户", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    "纯本地存储 · 数据不上传",
-                    color = Color.White.copy(alpha = 0.70f),
-                    fontSize = 13.sp
-                )
-            }
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = Color.White.copy(alpha = 0.70f)
-            )
         }
     }
 }
@@ -187,8 +150,7 @@ private fun StatDivider() {
 private fun MenuList(
     onOpenTemplates: () -> Unit,
     onOpenFeedback: () -> Unit,
-    onOpenRelationshipTags: () -> Unit,
-    onComingSoon: (String) -> Unit
+    onOpenRelationshipTags: () -> Unit
 ) {
     Column(Modifier.padding(horizontal = 20.dp)) {
         MenuRow("我的名片模板", IconChipBeige, onClick = onOpenTemplates) {
@@ -197,14 +159,6 @@ private fun MenuList(
         MenuDivider()
         MenuRow("关系标签管理", IconChipBlue, onClick = onOpenRelationshipTags) {
             Icon(Icons.Filled.Person, contentDescription = null, tint = TextPrimary, modifier = Modifier.size(20.dp))
-        }
-        MenuDivider()
-        MenuRow("数据备份", IconChipBlue, onClick = { onComingSoon("数据备份") }) {
-            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = null, tint = TextPrimary, modifier = Modifier.size(20.dp))
-        }
-        MenuDivider()
-        MenuRow("隐私与安全", IconChipPink, onClick = { onComingSoon("隐私与安全") }) {
-            Icon(Icons.Filled.Lock, contentDescription = null, tint = TextPrimary, modifier = Modifier.size(20.dp))
         }
         MenuDivider()
         MenuRow("反馈与建议", IconChipGreen, onClick = onOpenFeedback) {
